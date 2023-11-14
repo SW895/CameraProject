@@ -1,9 +1,9 @@
 services:
   web:
     build:
-      context: ./django_app
+      context: ./djbackend
       dockerfile: dockerfile.prod
-    command: gunicorn django_app.wsgi:application --bind 0.0.0.0:8000 --timeout 0
+    command: gunicorn djbackend.wsgi:application --bind 0.0.0.0:8000 --timeout 0
     expose:
       - 8000
       - 12345
@@ -18,9 +18,9 @@ services:
       - camera
   camera:
     build:
-      context: ./cam
+      context: ./camera_conn
       dockerfile: dockerfile.cam
-    command: python camera_connection.py
+    command: python camera_conn.py
     environment:
       PGG_HOST: camera
     ports:
