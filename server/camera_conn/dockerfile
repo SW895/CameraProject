@@ -3,4 +3,4 @@ ENV PYTHONDONTWRITEBYTECODE 1
 ENV PYTHONUNBUFFERED 1
 
 WORKDIR /code
-COPY camera_connection.py /code/
+COPY camera_conn.py /code/
