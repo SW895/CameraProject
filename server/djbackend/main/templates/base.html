@@ -1,0 +1,18 @@
+<html lang="en">
+    <head>
+        <title>Chiken Gun</title>
+    </head>
+    <body>
+    <table>
+        <tr>
+            <td><a href="{% url 'main-view' %}">Main Page</a></td>
+            <td><a href="{% url 'stream' %}">LiveStream</a></td>
+            <td><a href="{% url 'archive-view' %}">Archive</a></td>
+            <td><a href="{% url 'registration-view' %}">Registration</a></td>
+            <td><a href="{% url 'login-view' %}">Login</a></td>
+        </tr>
+    </table>
+    {% block content %}
+    {% endblock %}         
+    </body>
+</html>
