@@ -32,7 +32,4 @@ def registration_confirm_view(request):
     return render(
         request,
         'registration/registration_confirm.html',
-        context = {
-
-        }
     )
