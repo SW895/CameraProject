@@ -15,16 +15,16 @@ def registration_view(request):
         if form.is_valid():
             user = form.save(commit=False)
             user.is_active = False
-            user.save()            
+            user.save()
             aprove_user(user)
             return redirect('registration-confirm-view')
     else:
         form = UserRegistrationForm()
     users = User.objects.all()
     context = {
-            'form':form,
-            'users':users,
-        }
+        'form': form,
+        'users': users,
+    }
     return render(request, 'registration/registration.html', context)
 
 

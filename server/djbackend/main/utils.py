@@ -1,13 +1,14 @@
 import socket
 import os
 
+
 def gen():
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        sock.connect((os.environ.get('INTERNAL_HOST'),int(os.environ.get('INTERNAL_PORT'))))
+        sock.connect((os.environ.get('INTERNAL_HOST'), int(os.environ.get('INTERNAL_PORT'))))
     except socket.error:
         sock.close()
-        return None          
+        return None
     else:
         msg = 'Stream'
         try:

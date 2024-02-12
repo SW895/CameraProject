@@ -5,10 +5,10 @@ from django.conf.urls.static import static
 from main import views as main
 from registration import views as reg
 
-urlpatterns = [   
+urlpatterns = [
     path('', main.main_view, name='main-view'),
     path('stream/', main.stream_view, name='stream'),
-    path('camera_source/', main.camera_source_view, name='camera-source'),    
+    path('camera_source/', main.camera_source_view, name='camera-source'),
     path('archive/', main.archive_view, name='archive-view'),
     path('archive/<int:pk>', main.VideoDetailView.as_view(), name='video-detail'),
     path('registration/', reg.registration_view, name='registration-view'),

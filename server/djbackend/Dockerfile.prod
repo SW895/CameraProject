@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends gcc
 RUN pip install --upgrade pip
 RUN pip install flake8==6.0.0
 COPY . /usr/src/app
-RUN flake8 --ignore=E501,F401,E302,E265,W292,E231,E303,E111,E117,E121,W293,E116,W291,E251,F841,W391,E122 .
+RUN flake8 --ignore=E501,F401
 
 COPY ./requirements.txt .
 RUN pip wheel --no-cache-dir --no-deps --wheel-dir /usr/src/app/wheels -r requirements.txt
@@ -26,6 +26,8 @@ RUN addgroup --system app && adduser --system --group app
 ENV HOME=/home/app
 ENV APP_HOME=/home/app/web
 RUN mkdir $APP_HOME
+RUN mkdir $APP_HOME/staticfiles
+RUN mkdir $APP_HOME/mediafiles
 WORKDIR $APP_HOME
 
 RUN apt-get update && apt-get install -y --no-install-recommends netcat
@@ -34,7 +36,15 @@ COPY --from=builder /usr/src/app/requirements.txt .
 RUN pip install --upgrade pip
 RUN pip install --no-cache /wheels/*
 
+COPY ./entrypoint.prod.sh .
+RUN sed -i 's/\r$//g'  $APP_HOME/entrypoint.prod.sh
+RUN chmod +x $APP_HOME/entrypoint.prod.sh
+
 COPY . $APP_HOME
 RUN chown -R app:app $APP_HOME
 USER app
+
+ENTRYPOINT ["/home/app/web/entrypoint.prod.sh"]
+
+
 

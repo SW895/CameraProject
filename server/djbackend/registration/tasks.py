@@ -1,10 +1,11 @@
 from djbackend.celery import app
 from .models import CustomUser
-import socket, os
+import socket
+import os
 
 
 @app.task
-def aprove_user(user):    
+def aprove_user(user):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
         sock.connect((os.environ.get('INTERNAL_HOST', '127.0.0.1'),

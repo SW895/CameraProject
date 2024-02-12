@@ -5,7 +5,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = os.environ.get('SECRET_KEY', '111')
 DEBUG = bool(os.environ.get('DEBUG', 0))
 ALLOWED_HOSTS = os.environ.get('DJANGO_ALLOWED_HOSTS', '127.0.0.1').split(' ')
-CSRF_TRUSTED_ORIGINS = os.environ.get('CSRF_TRUSTED_ORIGINS', 'http://localhost:1337').split(' ')
+CSRF_TRUSTED_ORIGINS = os.environ.get('CSRF_TRUSTED_ORIGINS',
+                                      'http://localhost:1337').split(' ')
 AUTH_USER_MODEL = 'registration.CustomUser'
 
 MEDIA_URL = 'media/'
@@ -40,7 +41,7 @@ ROOT_URLCONF = 'djbackend.urls'
 TEMPLATES = [
     {
         'BACKEND': 'django.template.backends.django.DjangoTemplates',
-        'DIRS': [BASE_DIR/ 'templates'],
+        'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
             'context_processors': [
@@ -85,18 +86,18 @@ LOGIN_REDIRECT_URL = '/'
 
 # DB
 DATABASES = {
-    'default': 
-        {
+    'default':
+    {
         'ENGINE': os.environ.get('POSTGRES_ENGINE', 'django.db.backends.postgresql'),
         'NAME': os.environ.get('POSTGRES_DB', 'dj_test'),
         'USER': os.environ.get('POSTGRES_USER', 'test_dj'),
         'PASSWORD': os.environ.get('POSTGRES_PASSWORD', '123'),
         'HOST': os.environ.get('POSTGRES_HOST', 'localhost'),
         'PORT': os.environ.get('POSTGRES_PORT', '5432'),
-        }    
     }
+}
 
-# Redis 
+# Redis
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
@@ -104,14 +105,16 @@ CACHES = {
                                                  os.environ.get('REDIS_PASSWORD', '123'),
                                                  os.environ.get('REDIS_HOST', '127.0.0.1'),
                                                  os.environ.get('REDIS_PORT', '6379'))
-        }
     }
+}
 
 # Celery
-CELERY_BROKER_URL = 'redis://{}:{}/0'.format(os.environ.get('REDIS_HOST', '127.0.0.1'),
-                                             os.environ.get('REDIS_PORT', '6379'))
-CELERY_RESULT_BACKEND = 'redis://{}:{}/0'.format(os.environ.get('REDIS_HOST', '127.0.0.1'),
-                                                 os.environ.get('REDIS_PORT', '6379'))
+CELERY_BROKER_URL = 'redis://{}:{}/0'.format(
+    os.environ.get('REDIS_HOST', '127.0.0.1'),
+    os.environ.get('REDIS_PORT', '6379'))
+CELERY_RESULT_BACKEND = 'redis://{}:{}/0'.format(
+    os.environ.get('REDIS_HOST', '127.0.0.1'),
+    os.environ.get('REDIS_PORT', '6379'))
 
 # Email
 EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'

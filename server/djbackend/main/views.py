@@ -7,10 +7,11 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from .models import ArchiveVideo, CachedVideo
 from .utils import gen
 from datetime import timedelta, datetime
-import os, socket
+import os
+import socket
 
 
-def main_view(request):    
+def main_view(request):
     return render(
         request,
         'main/main_page.html',
@@ -19,7 +20,7 @@ def main_view(request):
 
 @login_required
 def stream_view(request):
-     return render(
+    return render(
         request,
         'main/stream_page.html',
     )
@@ -27,7 +28,7 @@ def stream_view(request):
 
 @login_required
 def camera_source_view(request):
-    return StreamingHttpResponse(gen(), 
+    return StreamingHttpResponse(gen(),
                                  content_type='multipart/x-mixed-replace; boundary=frame')
 
 
@@ -50,10 +51,10 @@ def archive_view(request):
     return render(
         request,
         'main/archive_page.html',
-        context = {
+        context={
             'params': params,
             'videos': videos,
-            'full_url':str(request.get_full_path()),
+            'full_url': str(request.get_full_path()),
         }
     )
 
@@ -76,28 +77,27 @@ class VideoDetailView(LoginRequiredMixin, generic.DetailView):
             record.date_expire = datetime.now() + timedelta(seconds=timeout)
             record.save()
             return context
-        
+
         else:
             msg = 'Video' + ' ' + video_name
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            
+
             try:
                 sock.connect((os.environ.get('INTERNAL_HOST', '127.0.0.1'),
-                              int(os.environ.get('INTERNAL_PORT',20900))))       
+                              int(os.environ.get('INTERNAL_PORT', 20900))))
             except socket.error:
                 context['video_name'] = None
                 sock.close()
                 return context
-            
+
             sock.send(msg.encode())
             reply = sock.recv(1024)
 
             if reply.decode() == 'Success':
                 context['video_name'] = video_name
                 cache.set(video_name, True, timeout=timeout)
-                record = CachedVideo(name=video_name, 
-                                     date_expire=datetime.now() + 
-                                                 timedelta(seconds=timeout))
+                record = CachedVideo(name=video_name,
+                                     date_expire=datetime.now() + timedelta(seconds=timeout))
                 record.save()
             else:
                 context['video_name'] = None

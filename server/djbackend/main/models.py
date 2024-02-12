@@ -1,5 +1,6 @@
 from django.db import models
 
+
 class ArchiveVideo(models.Model):
 
     date_created = models.DateTimeField(blank=False)
@@ -10,8 +11,8 @@ class ArchiveVideo(models.Model):
 
     def __str__(self):
         return str(self.data_created)
-    
-    
+
+
 class CachedVideo(models.Model):
     name = models.TextField()
     date_expire = models.DateTimeField()

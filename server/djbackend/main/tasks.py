@@ -1,7 +1,9 @@
 from djbackend.celery import app
 from django.conf import settings
 from .models import CachedVideo
-import datetime, os
+import datetime
+import os
+
 
 @app.task
 def clean_expired_records():
