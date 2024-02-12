@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="ui left aligned container"> 
+    <h1 class="ui center aligned header">Registration</h1>  
+    <form method="post">  
+    {% csrf_token %}        
+    {% if form.errors %} 
+            <div class="ui big form segment error">    
+            {% for field in form %}
+                {% if field.errors %} 
+                    <div class="field error">
+                        <label>{{ field.label_tag }}</label>
+                        {{ field }}
+                    </div>
+                    <div class="ui error message">
+                        <ul class="list">
+                            {% for error in field.errors %}                    
+                                <li>{{ error }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>                    
+                {% else %}                     
+                    <div class="field">
+                        <label>{{ field.label_tag }}</label>
+                        {{ field }}
+                    </div>
+                {% endif %}        
+            {% endfor %}
+            <button class="ui blue big button">Submit</button>        
+        </div>
+    {% else %}
+        <div class="ui big form segment">
+            {% for field in form %} 
+                <div class="field">
+                    <label>{{ field.label_tag }}</label>
+                    {{ field }}
+                </div>
+            {% endfor %}
+            <button class="ui blue big button">Submit</button>            
+        </div>
+    {% endif %} 
+    </form>
+</div>
+{% endblock %}

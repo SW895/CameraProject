@@ -1,0 +1,36 @@
+{% extends "base.html" %}
+
+{% block content %}
+
+{% if user.is_authenticated %}
+<div style="margin-top: 100px" class="ui center aligned container">  
+<h1 class="ui center aligned header">Welcome {{ user.username }}</h1>
+</div>
+{% else %}
+<div style="margin-top: 100px" class="ui placeholder segment">
+  <div class="ui two column very relaxed stackable grid">
+    <div  class="column">
+      <h1 class="ui center aligned header"></h1>
+      <a href="{% url 'login' %}">
+        <div class="ui big blue button">
+          <i class="signup icon"></i>
+          Log In
+        </div>
+      </a>
+    </div>
+    <div class="middle aligned column">
+      <h1 class="ui center aligned header">New to us?</h1>
+      <a href="{% url 'registration-view' %}">
+        <div class="ui big button">
+          <i class="signup icon"></i>
+          Sign Up
+        </div>
+      </a>
+    </div>
+    </div>
+    <div class="ui vertical divider">
+      Or
+    </div>
+  </div>
+  {% endif %}
+{% endblock %}

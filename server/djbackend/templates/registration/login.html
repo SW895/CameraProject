@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+
+{% block content %}
+<div style="margin-top: 100px" class="ui left aligned container">     
+    {% if form.errors %}
+            <div class="ui big form segment error">
+                <div class="ui error message">
+                    <ul class="list">                   
+                            <li>Your username and password didn't match. Please Try again</li>
+                    </ul>
+                </div>
+            </div>
+    {% endif %}
+
+    {% if next %}
+    {% if user.is_authenticated %}
+    <div class="ui left aligned container"> 
+        <h1 class="ui left aligned header">
+            Your account doesn't have acces to this page. To proceed please login with an account that have access
+        </h1>
+    </div>    
+    {% else %}
+    <div class="ui left aligned container"> 
+        <h1 class="ui left aligned header">
+            Please login to see this page
+        </h1>
+    </div>
+    {% endif %}
+    {% endif %}
+    
+    <div class="ui big form">
+        <form method="post" action="{% url 'login' %}">
+            {% csrf_token %}
+            <div class="field">
+                <label>{{ form.username.label_tag }}</label>
+                <div class="ui left icon input">
+                    <i class="user icon"></i>
+                    {{ form.username }}
+                </div>
+            </div>
+            <div class="field">
+                <label>{{ form.password.label_tag }}</label>
+                <div class="ui left icon input">
+                    {{ form.password }}
+                    <i class="lock icon"></i>
+                </div>
+            </div>
+                <input type="hidden" name="next" value="{{ next }}"> 
+                <button type="submit" class="ui big blue submit button">                    
+                 Login                
+                </button>            
+        </form>
+    </div>
+    
+    <a href="{% url 'password_reset' %}">
+        <h3 class="ui right aligned header">
+            Lost password?         
+        </h3>
+    </a>
+    
+</div>
+{% endblock %}

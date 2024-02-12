@@ -1,0 +1,14 @@
+{% extends "base.html" %}
+
+
+
+{% block content %}
+<div style="margin-top: 100px" class="ui center aligned container">     
+        <h2 class="ui center aligned header">Logged out!</h2>
+        <a href="{% url 'login' %}">
+            <button class="ui blue big button">
+                Click here to login again.
+            </button>
+          </a>    
+</div>
+{% endblock %}

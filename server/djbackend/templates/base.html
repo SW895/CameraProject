@@ -1,0 +1,93 @@
+<html lang="en">
+  <head>
+    <title>Chiken Gun</title>        
+    {% load static %}
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/semantic-ui/2.4.1/semantic.min.css" rel="stylesheet" /> 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/semantic-ui/2.4.1/semantic.min.js"></script>
+  </head>
+    
+  <body>
+
+    <div class="ui massive pointing menu"> 
+
+      <a class="item" href="{% url 'main-view' %}">  
+        <i class="book icon"></i>  
+        Main Page 
+      </a>
+
+      {% if user.is_authenticated %}
+
+      <a class="item" href="{% url 'stream' %}">  
+        <i class="tv icon"></i> 
+        LiveStream 
+      </a> 
+
+      <a class="item" href="{% url 'archive-view' %}">  
+        <i class="archive icon"></i>  
+        Archive  
+      </a> 
+
+      {% endif %}
+
+      <div class="right menu"> 
+
+        {% if user.is_authenticated %}
+        <div class="item">
+          <div class="ui button" >
+            <a href="{% url 'logout' %}">
+              Log out
+            </a>
+          </div>          
+        </div>
+
+        <div class="item">
+          <div class="ui button" >
+            <a href="{% url 'password_change' %}">
+              Change Password
+            </a>
+          </div>
+        </div>
+        {% else %}
+
+        <div class="item">
+          <a href="{% url 'registration-view' %}">
+          <div class="ui huge primary button">            
+              Sign up            
+          </div>
+          </a>
+        </div>
+        
+        <div class="item">
+          <a href="{% url 'login' %}">
+            <div class="ui huge button">            
+              Log-in            
+            </div>
+          </a>
+        </div>
+
+        {% endif %}
+      </div> 
+    </div> 
+
+    <div class="ui grid">
+      <div class="two wide column"> 
+        {% block filter %}
+        {% endblock %}      
+      </div>
+      
+      <div class="ten wide column">
+        {% block content %}
+        {% endblock %}
+      </div>      
+    </div>
+
+  </body>
+</html>
+
+
+
+
+
+    
+    
+       

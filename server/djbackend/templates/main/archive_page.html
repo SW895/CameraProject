@@ -1,0 +1,184 @@
+{% extends "base.html" %}
+{% load static %}
+{% load get_url %}
+
+{% block content %}
+<script type="text/javascript">
+    function form_url2() {
+        alert('begin');
+        const form1 = document.querySelector("#myform");
+
+        alert(form1);
+        //var date_from = form1.elements.date_from.value;
+        //var date_to = form1.elements.date_to.value;
+        var date_created = form1.elements.date.value;
+
+        alert(date);
+        if (date == ''){
+            alert('Choose Date')
+            return false
+        }
+        alert('third command');
+        var url = new URL(window.location);
+
+        //url.searchParams.set('date_from', date_from);
+        //url.searchParams.set('date_to', date_to);
+        alert(url);
+        url.searchParams.set('date_created',date_created);
+        alert(url);
+        location.replace(url);      
+    }
+
+    function today_url(){
+        let currentDate = new Date().toJSON().slice(0,10);
+        var url = new URL(window.location);
+        url.searchParams.set('date_created',currentDate);
+        location.replace(url); 
+    }
+</script>
+
+{% if videos %}
+<table class="ui celled structured table">
+    <thead>
+      <tr>
+        <th rowspan="2">Date recorded</th>
+        <th rowspan="2">Car Detection</th>
+        <th rowspan="2">Cat Detection</th>
+        <th rowspan="2">Chiken Detection</th>
+        <th rowspan="2">Human Detection</th>
+      </tr>
+    </thead>
+    <tbody>
+        {% for video in videos %}
+        <tr>
+            <td><a href="{% url 'video-detail' video.pk %}">{{ video.date_created }}</a></td>
+            {% if video.car_det %}
+            <td class="center aligned">
+                <i class="large green checkmark icon"></i>
+            </td>
+            {% else %}
+            <td></td>
+            {% endif %}
+
+            {% if video.cat_det %}
+            <td class="center aligned">
+                <i class="large green checkmark icon"></i>
+            </td>
+            {% else %}
+            <td></td>
+            {% endif %}
+
+            {% if video.chiken_det %}
+            <td class="center aligned">
+                <i class="large green checkmark icon"></i>
+            </td>
+            {% else %}
+            <td></td>
+            {% endif %}
+
+            {% if video.human_det %}
+            <td class="center aligned">
+                <i class="large green checkmark icon"></i>
+            </td>
+            {% else %}
+            <td></td>
+            {% endif %}
+        </tr>
+        {% endfor %} 
+    </tbody>      
+</table>
+
+{% else %}
+
+<h1 class="ui center aligned header">No videos found</h1>
+
+{% endif %}
+
+{% endblock %}
+
+
+{% block filter %}
+<h1 class="ui center aligned header">Filter</h1>
+
+<h2 class="ui center aligned header">Date:</h2>
+
+<a id="link" href="#" onclick="today_url();">
+    <button class="ui fluid button">            
+        Today
+    </button>
+</a>
+
+<h2 class="ui center aligned header">Or</h2>
+
+<form id="myform">
+    <div class="ui center aligned container">
+        <input type="date" name="date" required="">
+    </div>
+</form>
+    <a id="link" href="#" onclick="form_url2();">
+        <button class="ui fluid button">            
+            Search date
+        </button>
+    </a>  
+
+
+<h2 class="ui center aligned header">Detected object:</h2>
+
+<div class="ui fluid vertical buttons">
+    <a href="{{ full_url|get_url:'car_det' }}">
+    {% if params.car_det %}
+        <button class="ui active button">            
+            Car 
+        </button></a>
+    {% else %}
+        <button class="ui button">            
+            Car 
+        </button>
+    {% endif %} 
+    </a>
+
+    <a href="{{ full_url|get_url:'cat_det' }}">
+    {% if params.cat_det %}
+        <button class="ui active button">            
+            Cat 
+        </button></a>
+    {% else %}
+        <button class="ui button">            
+            Cat 
+        </button>
+    {% endif %} 
+    </a>
+
+    <a href="{{ full_url|get_url:'chiken_det' }}">
+    {% if params.chiken_det %}
+        <button class="ui active button">            
+            Chiken 
+        </button></a>
+    {% else %}
+        <button class="ui button">            
+            Chiken 
+        </button>
+    {% endif %} 
+    </a>
+
+    <a href="{{ full_url|get_url:'human_det' }}">
+    {% if params.human_det %}
+        <button class="ui active button">            
+            Human 
+        </button></a>
+    {% else %}
+        <button class="ui button">            
+            Human 
+        </button>
+    {% endif %} 
+    </a>
+
+    <h1 class="ui header"></h1>
+    <a href="{% url 'archive-view' %}">
+        <button class="ui button">            
+            Reset filter
+        </button>
+    </a>
+</div>
+
+{% endblock %}
