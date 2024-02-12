@@ -1,30 +1,18 @@
-"""
-URL configuration for djbackend project.
-
-The `urlpatterns` list routes URLs to views. For more information please see:
-    https://docs.djangoproject.com/en/4.2/topics/http/urls/
-Examples:
-Function views
-    1. Add an import:  from my_app import views
-    2. Add a URL to urlpatterns:  path('', views.home, name='home')
-Class-based views
-    1. Add an import:  from other_app.views import Home
-    2. Add a URL to urlpatterns:  path('', Home.as_view(), name='home')
-Including another URLconf
-    1. Import the include() function: from django.urls import include, path
-    2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
-"""
 from django.contrib import admin
-from django.urls import path
-from main.views import stream_view, main_view, archive_view, camera_source_view
-from registration.views import login_view, registration_view
-   
+from django.urls import path, include
+from django.conf import settings
+from django.conf.urls.static import static
+from main import views as main
+from registration import views as reg
+
 urlpatterns = [   
-    path('', main_view, name='main-view'),
-    path('stream/', stream_view, name='stream'),    
-    path('archive/', archive_view, name='archive-view'),
-    path('login/', login_view, name='login-view'),    
-    path('registration/', registration_view, name='registration-view'),
-    path('camera_source/', camera_source_view, name='camera-source'),
+    path('', main.main_view, name='main-view'),
+    path('stream/', main.stream_view, name='stream'),
+    path('camera_source/', main.camera_source_view, name='camera-source'),    
+    path('archive/', main.archive_view, name='archive-view'),
+    path('archive/<int:pk>', main.VideoDetailView.as_view(), name='video-detail'),
+    path('registration/', reg.registration_view, name='registration-view'),
+    path('registration_confirm/', reg.registration_confirm_view, name='registration-confirm-view'),
+    path('accounts/', include('django.contrib.auth.urls')),
     path('admin/', admin.site.urls),
-]
+] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
