@@ -1,0 +1,8 @@
+*.ini
+*.env.prod
+*.txt
+*.json
+*.tar
+*.rdb
+video_archive/
+__pycache__/
