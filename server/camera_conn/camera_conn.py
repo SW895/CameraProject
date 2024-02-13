@@ -29,7 +29,7 @@ def handle_external_conn(external_sock, cases):
         msg = external_conn.recv(1024)
         print('External message received:', msg.decode())
 
-        if msg.decode()[:6] in cases.keys():
+        if msg.decode().split('#')[0] in cases.keys():
             reply = 'accepted'
             try:
                 print('Connection established. Sending reply...')
@@ -38,7 +38,7 @@ def handle_external_conn(external_sock, cases):
                 print('Failed to send reply.')
                 external_conn.close()
             else:
-                cases[msg.decode()[:6]](msg.decode(), external_conn, addr)                
+                cases[msg.decode().split('#')[0]](msg.decode(), external_conn, addr)                
         else:
             external_conn.close()
             continue
@@ -50,10 +50,10 @@ def handle_sig(th_name, conn, addr):
     check_connection(th_name, conn, signal_queue, 'Restart')
 
     while True:
-        signal = signal_queue.get()        
+        signal = signal_queue.get()       
         print(f'{th_name}: Get signal', signal)   
-        if signal == 'Restart':
-            break     
+        if signal == 'Restart ':
+            break
         try:
             conn.send(signal.encode())
         except BrokenPipeError or ConnectionResetError:
@@ -123,7 +123,7 @@ def save_record(th_name):
 
 @start_thread
 def handle_video_response(th_name, conn, addr):
-    th_name = th_name.split(' ')[1]
+    th_name = th_name.split('#')[1]
     print(f'{th_name}: Thread started')
     video_name = th_name.split('|')[0]
     video_length = int(th_name.split('|')[1])
@@ -151,8 +151,8 @@ def handle_video_response(th_name, conn, addr):
 @start_thread
 def handle_user_aprove(msg, conn, addr):
     conn.close()
-    username = msg.split('|')[1]
-    result = msg.split('|')[2]
+    username = msg.split('#')[1].split('|')[0]
+    result = msg.split('#')[1].split('|')[1]
 
     db_conn, cur = connect_to_db()
     if db_conn:
@@ -178,8 +178,8 @@ def handle_internal_conn(internal_sock, cases):
 
         msg = internal_conn.recv(1024)
         print('Internal message received:', msg.decode())
-        if msg.decode()[:6] in cases.keys():
-            cases[msg.decode()[:6]](msg.decode(), internal_conn, addr)
+        if msg.decode().split('#')[0] in cases.keys():
+            cases[msg.decode().split('#')[0]](msg.decode(), internal_conn, addr)
         else:
             internal_conn.close()
 
@@ -195,7 +195,7 @@ def handle_stream_request(msg, conn , addr):
 
 
 def handle_video_request(msg, conn , addr):
-    video_requesters_queue.put(SocketConn(msg.split(' ')[1], conn, addr))
+    video_requesters_queue.put(SocketConn(msg.split('#')[1], conn, addr))
     handle_video(msg)
 
 
@@ -261,7 +261,7 @@ def handle_video(th_name):
                 else:
                     video_request_time = datetime.datetime.now()
                     video_requesters[requester.name] = [video_request_time, requester]
-                    signal_queue.put('Video' + ' ' + requester.name)
+                    signal_queue.put('Video' + '#' + requester.name)
         
         if video_response_queue.qsize() > 0:
             while not(video_response_queue.empty()):
@@ -286,7 +286,7 @@ def handle_video(th_name):
 
 
 external_cases = {
-    'StrmIN': handle_incoming_stream, 
+    'Stream': handle_incoming_stream, 
     'Signum': handle_sig, 
     'SaveDB': handle_json, 
     'VideoR': handle_video_response, 

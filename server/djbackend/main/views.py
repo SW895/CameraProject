@@ -79,7 +79,7 @@ class VideoDetailView(LoginRequiredMixin, generic.DetailView):
             return context
 
         else:
-            msg = 'VidREQ' + ' ' + video_name
+            msg = 'VidREQ' + '#' + video_name
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
             try:

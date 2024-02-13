@@ -17,7 +17,7 @@ def check_thread(target_function):
 
         if not thread_running :
             print(f'{args[0]}: Starting thread')                
-            thread = threading.Thread(target=target_function, args=args, name=args[0])
+            thread = threading.Thread(target=target_function, args=args, name=args[0].split('#')[0])
             thread.start()               
         else:
             print(f'{args[0]}: thread already running')
@@ -60,7 +60,7 @@ def connect_to_db():
     db_password =  os.environ.get('POSTGRES_PASSWORD', '123')
     db_host =  os.environ.get('POSTGRES_HOST', 'localhost')
     db_port =  os.environ.get('POSTGRES_PORT', '5432')
-    print(dbname, db_user, db_password, db_host)
+
     try:
         db_conn = psycopg.connect(dbname=dbname,
                                   user=db_user,
