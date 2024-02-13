@@ -2,36 +2,97 @@ services:
   web:
     build:
       context: ./djbackend
-      dockerfile: dockerfile.prod
-    command: gunicorn djbackend.wsgi:application --bind 0.0.0.0:8000 --timeout 0
+      dockerfile: Dockerfile.prod
+    command: gunicorn djbackend.wsgi:application --bind 0.0.0.0:8000 --timeout 0 --workers=5
+    volumes:
+      - static_volume:/home/app/web/staticfiles
+      #- media_volume:/home/app/web/mediafiles
+      #- /home/moreau/CameraProject/video:/home/app/web/mediafiles
+      - /home/sw99/video:/home/app/web/mediafiles
     expose:
       - 8000
-      - 12345
+      - 20900
+      - 6379
     env_file:
       - ./.env.prod
-    environment:
-      PG_HOST: camera
-      PG_PORT: 12345
     depends_on:
       - camera
+      - db
+      - redis
     links:
       - camera
+
+  db:
+    image: postgres:15
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    env_file:
+      - ./.env.prod
+
+  redis:
+    image: redis:7.0.5-alpine
+    expose:
+      - 6379
+
   camera:
     build:
       context: ./camera_conn
-      dockerfile: dockerfile.cam
+      dockerfile: Dockerfile.cam
     command: python camera_conn.py
-    environment:
-      PGG_HOST: camera
+    volumes:
+      #- /home/moreau/CameraProject/video:/home/app/web/mediafiles
+      - /home/sw99/video:/home/app/web/mediafiles
+    env_file:
+      - ./.env.prod
     ports:
-      - 1555:1555
-      - 12345:12345
+      - 10900:10900
     expose:
-      - 12345
-      - 1555
+      - 20900
+
+  celery_worker:
+    build: 
+      context: ./djbackend
+      dockerfile: Dockerfile.prod
+    user: root
+    volumes:
+      #- /home/moreau/CameraProject/video:/home/app/web/mediafiles
+      - /home/sw99/video:/home/app/web/mediafiles
+    env_file:
+      - ./.env.prod
+    depends_on:
+      - redis
+      - db
+      - web
+    command: celery -A djbackend worker -l info
+  
+  celery_beat:
+    build: 
+      context: ./djbackend
+      dockerfile: Dockerfile.prod
+    env_file:
+      - ./.env.prod
+    volumes:
+      #- /home/moreau/CameraProject/video:/home/app/web/mediafiles
+      - /home/sw99/video:/home/app/web/mediafiles
+    depends_on:
+      - redis
+      - web
+      - celery_worker
+      - db
+    command: celery -A djbackend beat -l info 
+
   nginx:
     build: ./nginx
+    volumes:
+      - static_volume:/home/app/web/staticfiles
+      #- /home/moreau/CameraProject/video:/home/app/web/mediafiles
+      - /home/sw99/video:/home/app/web/mediafiles
     ports:
       - 1337:80     
     depends_on:
       - web
+    
+volumes:
+  postgres_data:
+  static_volume:
+  media_volume:

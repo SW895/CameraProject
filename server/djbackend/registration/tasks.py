@@ -13,7 +13,7 @@ def aprove_user(user):
     except socket.error:
         pass
     else:
-        msg = 'AppUS' + '|' + user.username + '|' + user.email
+        msg = 'AppUSR' + '|' + user.username + '|' + user.email
         sock.send(msg.encode())
     sock.close()
 
