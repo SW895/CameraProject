@@ -5,27 +5,18 @@
 {% block content %}
 <script type="text/javascript">
     function form_url2() {
-        alert('begin');
-        const form1 = document.querySelector("#myform");
-
-        alert(form1);
+        const form1 = document.querySelector("#myform"); 
         //var date_from = form1.elements.date_from.value;
         //var date_to = form1.elements.date_to.value;
         var date_created = form1.elements.date.value;
-
-        alert(date);
-        if (date == ''){
+        if (date_created == ''){
             alert('Choose Date')
             return false
         }
-        alert('third command');
         var url = new URL(window.location);
-
         //url.searchParams.set('date_from', date_from);
         //url.searchParams.set('date_to', date_to);
-        alert(url);
         url.searchParams.set('date_created',date_created);
-        alert(url);
         location.replace(url);      
     }
 
