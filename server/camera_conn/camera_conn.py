@@ -56,7 +56,7 @@ def handle_sig(th_name, conn, addr):
             break
         try:
             conn.send(signal.encode())
-        except BrokenPipeError or ConnectionResetError:
+        except:
             break
     print(f'{th_name}: Shut down')
 
