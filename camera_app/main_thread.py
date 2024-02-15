@@ -9,6 +9,7 @@ import numpy
 import json
 import smtplib
 import ssl
+from pathlib import Path
 from utils import check_thread, start_thread, handshake
 from ultralytics import YOLO
 from datetime import date, datetime
@@ -175,7 +176,7 @@ def send_email(receiver_email, username, result):
 def video_handler(th_name):
     print(f'{th_name}: thread started')
     video_name = th_name.split('#')[1]
-    full_video_name = save_path + video_name.split('T')[0] + '/' + video_name + '.mp4'
+    full_video_name = save_path / (video_name.split('T')[0] + '/' + video_name + '.mp4')
 
     with open(full_video_name, "rb") as video:
         video_bytes = video.read()
@@ -200,7 +201,7 @@ def camera_detection(model):
         if success:
             
             results = model(frame,conf=0.5)
-            """
+            
             if results[0]:
                 empty_frame_counter = 0
                 detection = True
@@ -209,8 +210,8 @@ def camera_detection(model):
                 if detection:
                     empty_frame_counter += 1
                 annotated_frame = frame
-            """
-            annotated_frame = frame
+            
+            #annotated_frame = frame
             if frame_queue.empty():                
                 frame_queue.put(annotated_frame)      
             
@@ -238,7 +239,7 @@ def camera_detection(model):
 def save_video(frames_to_save):
 
     today = date.today()
-    today_save_path = save_path + today.strftime("%d_%m_%Y") + '/'
+    today_save_path = save_path / (today.strftime("%d_%m_%Y") + '/')
     
     if not os.path.isdir(today_save_path):
         os.mkdir(today_save_path)
@@ -281,9 +282,9 @@ frames_to_save = []
 empty_frame_counter = 0
 detection = False
 
-path = os.path.abspath(os.path.dirname(__file__))
-model_path = path + '/weights/test_weights.pt'
-save_path = path[0:(len(path)-10)]+'video_archive/'
+base_dir = Path(__file__).resolve().parent.parent
+model_path = base_dir / 'camera_app/weights/test_weights.pt'
+save_path = base_dir / 'video_archive/'
 
 model = YOLO(model_path)
 
