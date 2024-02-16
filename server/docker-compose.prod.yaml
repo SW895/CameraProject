@@ -3,7 +3,7 @@ services:
     build:
       context: ./djbackend
       dockerfile: Dockerfile.prod
-    command: gunicorn djbackend.wsgi:application --bind 0.0.0.0:8000 --timeout 0 --workers=5
+    command: bash entrypoint.prod.sh
     volumes:
       - ./djbackend/mediafiles:/home/app/web/mediafiles
       - ./djbackend/staticfiles:/home/app/web/staticfiles

@@ -9,5 +9,4 @@ done
 echo "PostgreSQL started"
 
 python manage.py migrate --no-input
-
-exec "$@"
+gunicorn djbackend.wsgi:application --bind 0.0.0.0:8000 --timeout 0 --workers=5
