@@ -6,3 +6,5 @@
 *.rdb
 video_archive/
 __pycache__/
+staticfiles/
+mediafiles/
