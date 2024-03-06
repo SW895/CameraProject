@@ -10,7 +10,7 @@
 
     <div class="ui massive pointing menu"> 
 
-      <a class="item" href="{% url 'main-view' %}">  
+      <a class="item" href="{% url 'main' %}">  
         <i class="book icon"></i>  
         Main Page 
       </a>
@@ -22,7 +22,7 @@
         LiveStream 
       </a> 
 
-      <a class="item" href="{% url 'archive-view' %}">  
+      <a class="item" href="{% url 'archive' %}">  
         <i class="archive icon"></i>  
         Archive  
       </a> 
@@ -50,7 +50,7 @@
         {% else %}
 
         <div class="item">
-          <a href="{% url 'registration-view' %}">
+          <a href="{% url 'registration' %}">
           <div class="ui huge primary button">            
               Sign up            
           </div>

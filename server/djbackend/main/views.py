@@ -7,6 +7,7 @@ from django.contrib.auth.mixins import LoginRequiredMixin
 from .models import ArchiveVideo, CachedVideo
 from .utils import gen
 from datetime import timedelta, datetime
+from .tasks import update_cache
 import os
 import socket
 
@@ -64,43 +65,43 @@ class VideoDetailView(LoginRequiredMixin, generic.DetailView):
     template_name = 'main/archivevideo_detail.html'
 
     def get_context_data(self, *args, **kwargs):
-
+        
         timeout = int(os.environ.get('CACHE_TIMEOUT', '60'))
         context = super(VideoDetailView, self).get_context_data(*args, **kwargs)
         video = ArchiveVideo.objects.get(pk=self.kwargs['pk'])
         video_name = video.date_created.strftime("%d_%m_%YT%H_%M_%S")
-
         if cache.get(video_name):
             context['video_name'] = video_name
-            cache.set(video_name, True, timeout=timeout)
-            record = CachedVideo.objects.get(name=video_name)
-            record.date_expire = datetime.now() + timedelta(seconds=timeout)
-            record.save()
+            update_cache(video_name, timeout)
             return context
 
-        else:
-            msg = 'VidREQ' + '#' + video_name
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-
-            try:
-                sock.connect((os.environ.get('INTERNAL_HOST', '127.0.0.1'),
-                              int(os.environ.get('INTERNAL_PORT', 20900))))
-            except socket.error:
-                context['video_name'] = None
-                sock.close()
-                return context
-
-            sock.send(msg.encode())
-            reply = sock.recv(1024)
-
-            if reply.decode() == 'Success':
+        else:            
+            if self.request_video(video_name, timeout):
                 context['video_name'] = video_name
-                cache.set(video_name, True, timeout=timeout)
-                record = CachedVideo(name=video_name,
-                                     date_expire=datetime.now() + timedelta(seconds=timeout))
-                record.save()
             else:
                 context['video_name'] = None
-
-            sock.close()
             return context
+
+    def request_video(self, video_name, timeout=60):
+        msg = 'VidREQ' + '#' + video_name
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+        try:
+            sock.connect((os.environ.get('INTERNAL_HOST', '127.0.0.1'),
+                          int(os.environ.get('INTERNAL_PORT', 20900))))
+        except socket.error:
+            sock.close()
+            return False
+
+        sock.send(msg.encode())
+        reply = sock.recv(1024)
+        sock.close()
+
+        if reply.decode() == 'Success':
+            cache.set(video_name, True, timeout=timeout)
+            record = CachedVideo(name=video_name,
+                                     date_expire=datetime.now() + timedelta(seconds=timeout))
+            record.save()
+            return True
+        else:
+            return False
