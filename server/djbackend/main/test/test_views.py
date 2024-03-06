@@ -286,9 +286,12 @@ class TestVideoDetailView(TestCase):
             server_sock.bind(('127.0.0.1', 20900))
             server_sock.listen(10)
             server_sock.settimeout(1)
-            signal = cls.sig.get()
+            signal = 'TestS'
+            
             while signal != 'Stop':
-                
+                signal = cls.sig.get()
+                if signal == 'TestCache':
+                    continue
                 try:
                     conn, addr = server_sock.accept()
                 except TimeoutError:
@@ -301,7 +304,6 @@ class TestVideoDetailView(TestCase):
                     msg = conn.recv(1024)
                     conn.send(reply.encode())
                     conn.close()
-                signal = cls.sig.get()
             
             server_sock.shutdown(socket.SHUT_RDWR)
             server_sock.close()
@@ -362,7 +364,7 @@ class TestVideoDetailView(TestCase):
         self.assertIsNotNone(response.context['video_name'])
 
     def test_success_with_cache(self):
-        self.sig.put('TestF')
+        self.sig.put('TestCache')
         self.test_cached_video_pk = CachedVideo.objects.create(name = self.video_name,
                                                                date_expire = self.current_date + 
                                                                datetime.timedelta(days=10))        
