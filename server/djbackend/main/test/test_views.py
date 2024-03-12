@@ -124,7 +124,7 @@ class TestArchiveView(TestCase):
                                     cat_det = False,
                                     car_det = False
                                     ).pk
-
+    
     def test_GET_anonymous_user(self):
         response = self.client.get(reverse('archive'))
         self.assertRedirects(response, '/accounts/login/?next=/archive/')
@@ -336,6 +336,9 @@ class TestVideoDetailView(TestCase):
     def tearDownClass(cls):
         cls.sig.put('Stop')
         cls.th.join()
+        users = User.objects.all()
+        for user in users:
+            user.delete()
 
     def test_GET_anonymous_user(self):
         response = self.client.get(f'/archive/{self.test_video_pk}', follow=True)

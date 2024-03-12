@@ -17,7 +17,7 @@ def registration_view(request):
             user.is_active = False
             user.save()
             aprove_user(user)
-            return redirect('registration-confirm-view')
+            return redirect('registration-confirm')
     else:
         form = UserRegistrationForm()
     users = User.objects.all()
