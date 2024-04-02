@@ -1,12 +1,15 @@
 from django.test import TestCase
 from ..models import ArchiveVideo, CachedVideo
 import datetime
+import pytz
+
+timezone = pytz.timezone('Europe/Moscow')
 
 class TestArchiveVideo(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        cls.obj_id = ArchiveVideo.objects.create(date_created=datetime.datetime.now()).pk
+        cls.obj_id = ArchiveVideo.objects.create(date_created=datetime.datetime.now(tz=timezone)).pk
 
     def test_cat_det_false_by_default(self):
         video = ArchiveVideo.objects.get(id=self.obj_id)
@@ -35,7 +38,7 @@ class TestCachedVideo(TestCase):
     @classmethod
     def setUpTestData(cls):
         cls.obj_id = CachedVideo.objects.create(name='2024-02-02T14:25:34',
-                                   date_expire=datetime.datetime.now()).pk
+                                   date_expire=datetime.datetime.now(tz=timezone)).pk
     
     def test_string_representation(self):
         cached_video = CachedVideo.objects.get(id=self.obj_id)

@@ -3,6 +3,7 @@ from ..tasks import aprove_user, check_nonactive, clean_denied
 import socket
 import queue
 import threading
+import json
 from django.contrib.auth import get_user_model
 
 User = get_user_model()
@@ -41,7 +42,6 @@ class TestAproveUser(TestCase):
 
         cls.th = threading.Thread(target=fake_server)
         cls.th.start()
-         
 
         cls.test_user_1 = 'test_user_1'
         cls.test_password_1 = '1X<ISRUkw+tuK'
@@ -61,6 +61,9 @@ class TestAproveUser(TestCase):
                                                admin_checked=False)
         test_user_1.save()
         test_user_2.save()
+        cls.request = {'request_type':'aprove_user_request', 
+                       'username':cls.test_user_1,
+                       'email':cls.test_email_1}
 
     @classmethod
     def tearDownClass(cls):
@@ -75,13 +78,13 @@ class TestAproveUser(TestCase):
         user = User.objects.get(username=self.test_user_1)
         app = aprove_user.apply(args=(user,)).get()
         result = self.result.get()
-        self.assertEqual('AppUSR' + '#' + user.username + '|' + user.email, result)
+        self.assertEqual(json.dumps(self.request), result)
 
     def test_check_nonactive_users(self):
         self.sig.put('Test')
         app = check_nonactive.apply().get()
         result = self.result.get()
-        self.assertEqual('AppUSR' + '#' + self.test_user_1 + '|' + self.test_email_1, result)
+        self.assertEqual(json.dumps(self.request), result)
 
 
 class TestCleanDenied(TestCase):

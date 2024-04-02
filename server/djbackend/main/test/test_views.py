@@ -2,13 +2,19 @@ from django.test import TestCase
 from django.contrib.auth import get_user_model
 from django.urls import reverse
 from ..models import ArchiveVideo, CachedVideo
+from ..views import VideoDetailView
 import datetime
 import socket, threading
 import queue
+from unittest.mock import Mock, patch
 from django.core.cache import cache
+import pytz
+
 
 User = get_user_model()
- 
+timezone = pytz.timezone('Europe/Moscow')
+
+
 class TestMainView(TestCase):
     @classmethod
     def setUpTestData(cls):
@@ -106,10 +112,10 @@ class TestCameraSourceView(TestCase):
 
 class TestArchiveView(TestCase):
     @classmethod
-    def setUpTestData(cls):
+    def setUp(cls):
         cls.test_user = 'test_user_1'
         cls.test_password = '1X<ISRUkw+tuK'
-        cls.current_date = datetime.datetime.now()
+        cls.current_date = datetime.datetime.now(tz=timezone) + datetime.timedelta(days=100)
         cls.date_string = cls.current_date.strftime('%Y-%m-%d')
         test_user = User.objects.create_user(username=cls.test_user,
                                              password=cls.test_password,
@@ -150,8 +156,6 @@ class TestArchiveView(TestCase):
 
     def test_get_item_by_date(self):
         self.client.login(username=self.test_user, password=self.test_password)
-
-
         response = self.client.get(f'/archive?date_created={self.date_string}', follow=True)
         self.assertEqual(str(response.context['user']), self.test_user)
         self.assertEqual(response.status_code, 200)
@@ -268,14 +272,7 @@ class TestArchiveView(TestCase):
         self.assertEqual(len(response.context['videos']), 1)
 
 
-class TestVideoDetailView(TestCase):
-
-    @classmethod
-    def tearDown(self):
-        name = self.current_date.strftime("%d_%m_%YT%H_%M_%S")
-        cache.delete(name)
-        for item in CachedVideo.objects.all():
-            item.delete()
+class TestVideoDetailView(TestCase):    
 
     @classmethod
     def setUpClass(cls):
@@ -298,9 +295,9 @@ class TestVideoDetailView(TestCase):
                     pass
                 else:
                     if signal == 'TestF':
-                        reply = 'Failure'
+                        reply = 'failure'
                     else:
-                        reply = 'Success'
+                        reply = 'success'
                     msg = conn.recv(1024)
                     conn.send(reply.encode())
                     conn.close()
@@ -312,17 +309,16 @@ class TestVideoDetailView(TestCase):
         cls.sig = queue.Queue()
         cls.th = threading.Thread(target=fake_server)
         cls.th.start()
-
+        
         cls.test_user = 'test_user_1'
         cls.test_password = '1X<ISRUkw+tuK'
-        cls.current_date = datetime.datetime.now()
+        cls.current_date = datetime.datetime.now(tz=timezone)
         cls.date_string = cls.current_date.strftime('%Y-%m-%d')
         cls.video_name = cls.current_date.strftime("%d_%m_%YT%H_%M_%S")
         test_user = User.objects.create_user(username=cls.test_user,
                                              password=cls.test_password,
                                              is_active=True,)
-        test_user.save()  
-
+        test_user.save()
         cls.test_video_pk = ArchiveVideo.objects.create(
                                     date_created=cls.current_date,
                                     human_det = False,
@@ -330,7 +326,14 @@ class TestVideoDetailView(TestCase):
                                     cat_det = False,
                                     car_det = False
                                     ).pk
+        cls.test_object = VideoDetailView()
 
+    @classmethod
+    def tearDown(self):
+        name = self.current_date.strftime("%d_%m_%YT%H_%M_%S")
+        cache.delete(name)
+        for item in CachedVideo.objects.all():
+            item.delete()   
 
     @classmethod
     def tearDownClass(cls):
@@ -340,9 +343,10 @@ class TestVideoDetailView(TestCase):
         for user in users:
             user.delete()
 
-    def test_GET_anonymous_user(self):
+    def test_GET_anonymous_user(self):        
         response = self.client.get(f'/archive/{self.test_video_pk}', follow=True)
         self.assertRedirects(response, f'/accounts/login/?next=/archive/{self.test_video_pk}')
+
 
     def test_GET_authenticated_user(self):
         self.sig.put('TestS')
@@ -395,3 +399,15 @@ class TestVideoDetailView(TestCase):
         self.client.login(username=self.test_user, password=self.test_password)
         response = self.client.get(f'/archive/{self.test_video_pk}')
         self.assertEqual(1, len(CachedVideo.objects.all()))
+
+    def test_request_video_success(self):    
+        mock_socket = Mock()   
+        mock_socket.recv.return_value = b'success'
+        response = self.test_object.request_video(video_name=self.video_name, sock=mock_socket)
+        self.assertTrue(response)
+
+    def test_request_video_failure(self):       
+        mock_socket = Mock()   
+        mock_socket.recv.return_value = b'failure'
+        response = self.test_object.request_video(video_name=self.video_name, sock=mock_socket)
+        self.assertFalse(response)

@@ -10,6 +10,9 @@ from datetime import timedelta, datetime
 from .tasks import update_cache
 import os
 import socket
+import json
+import pytz
+from django.utils.timezone import localtime
 
 
 def main_view(request):
@@ -64,44 +67,49 @@ class VideoDetailView(LoginRequiredMixin, generic.DetailView):
     model = ArchiveVideo
     template_name = 'main/archivevideo_detail.html'
 
-    def get_context_data(self, *args, **kwargs):
-        
+    def get_context_data(self, *args, **kwargs):        
+        timezone = pytz.timezone('Europe/Moscow')
         timeout = int(os.environ.get('CACHE_TIMEOUT', '60'))
+
         context = super(VideoDetailView, self).get_context_data(*args, **kwargs)
         video = ArchiveVideo.objects.get(pk=self.kwargs['pk'])
-        video_name = video.date_created.strftime("%d_%m_%YT%H_%M_%S")
+        video_name = localtime(video.date_created)
+        video_name = video_name.strftime("%d_%m_%YT%H_%M_%S")
         if cache.get(video_name):
             context['video_name'] = video_name
             update_cache(video_name, timeout)
             return context
-
-        else:            
-            if self.request_video(video_name, timeout):
+        else:
+            sock = self.connect_to_server()
+            if self.request_video(video_name, sock, timeout):
                 context['video_name'] = video_name
+                cache.add(video_name, True, timeout=timeout)
+                record = CachedVideo(name=video_name,
+                                     date_expire=datetime.now(tz=timezone) 
+                                                + timedelta(seconds=timeout))
+                record.save()
             else:
                 context['video_name'] = None
             return context
 
-    def request_video(self, video_name, timeout=60):
-        msg = 'VidREQ' + '#' + video_name
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    def request_video(self, video_name, sock, timeout=60):
+        msg = {'request_type':'video_request', 'video_name':video_name}
+        sock.send(json.dumps(msg).encode())
+        reply = sock.recv(1024)
+        sock.close()
+       
+        if reply.decode() == 'success':
+            return True
+        else:
+            return False
 
+    def connect_to_server(self):
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             sock.connect((os.environ.get('INTERNAL_HOST', '127.0.0.1'),
                           int(os.environ.get('INTERNAL_PORT', 20900))))
         except socket.error:
             sock.close()
-            return False
-
-        sock.send(msg.encode())
-        reply = sock.recv(1024)
-        sock.close()
-
-        if reply.decode() == 'Success':
-            cache.set(video_name, True, timeout=timeout)
-            record = CachedVideo(name=video_name,
-                                     date_expire=datetime.now() + timedelta(seconds=timeout))
-            record.save()
-            return True
+            return None
         else:
-            return False
+            return sock

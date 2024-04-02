@@ -1,5 +1,6 @@
 import socket
 import os
+import json
 
 
 def gen():
@@ -10,9 +11,9 @@ def gen():
         sock.close()
         return None
     else:
-        msg = 'Stream'
+        msg = {'request_type':'stream_request'}
         try:
-            sock.send(msg.encode())
+            sock.send(json.dumps(msg).encode())
         except BrokenPipeError or ConnectionResetError:
             return None
         else:

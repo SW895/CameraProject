@@ -6,17 +6,19 @@ from django.conf import settings
 import os
 from django.core.cache import cache
 import time
+import pytz
 
+timezone = pytz.timezone('Europe/Moscow')
 
 class TestCleanExpiredRecords(TestCase):
 
     @classmethod
     def setUpTestData(cls):
         cls.expire_id = CachedVideo.objects.create(name='expired_record',
-                                   date_expire=datetime.datetime.now() -
+                                   date_expire=datetime.datetime.now(tz=timezone) -
                                                datetime.timedelta(days=100)).pk
         cls.actual_id = CachedVideo.objects.create(name='actual_record',
-                                   date_expire=datetime.datetime.now() +
+                                   date_expire=datetime.datetime.now(tz=timezone) +
                                    datetime.timedelta(days=100)).pk
         
         cls.expired_name = str(settings.MEDIA_ROOT) + '/' + 'expired_record' + '.mp4'
@@ -56,7 +58,7 @@ class TestCleanVideo(TestCase):
     @classmethod
     def setUpTestData(cls):        
         cls.actual_id = CachedVideo.objects.create(name='actual_video',
-                                   date_expire=datetime.datetime.now()).pk
+                                   date_expire=datetime.datetime.now(tz=timezone)).pk
         
         cls.actual_name = str(settings.MEDIA_ROOT) + '/' + 'actual_video' + '.mp4'
         actual = open(cls.actual_name, 'w')
@@ -89,7 +91,7 @@ class TestUpdateCache(TestCase):
     def setUpTestData(cls):
         cls.timeout = 1
         cls.video_name = 'test_video'
-        cls.date_expire = datetime.datetime.now()
+        cls.date_expire = datetime.datetime.now(tz=timezone)
         cache.set(cls.video_name, True, timeout=1)
         cls.cache_pk = CachedVideo.objects.create(name=cls.video_name, 
                                                   date_expire=cls.date_expire).pk
