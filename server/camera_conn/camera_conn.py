@@ -7,6 +7,7 @@ import psycopg
 import datetime
 import logging
 import pytz
+from pathlib import Path
 from psycopg import sql
 from camera_utils import (check_thread, 
                     new_thread, 
@@ -73,6 +74,8 @@ class EchoServer():
         self.internal_handlers = self.get_IHandlers()
         self.DEBUG = False
         self.timezone = pytz.timezone('Europe/Moscow')
+        self.base_dir = Path(__file__).resolve().parent.parent
+        self.debug_video_save_path = self.base_dir / 'djbackend/mediafiles/'
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -102,7 +105,7 @@ class EchoServer():
         string += '\nInternal request types:'
         for item in self.internal_handlers.keys():
             string += '\n' + item   
-        return 'List of request types:' + string
+        return string
 
     def get_EHandlers(self):
         external_handler_list = [method for method in EchoServer.__dict__ 
@@ -315,8 +318,9 @@ class EchoServer():
                                                             video_name=request.video_name))
                 log.warning('Failed to receive video file')
             else: 
-                if self.DEBUG:  
-                    video_name_save = os.path.join('/home/moreau/CameraProject/server/djbackend/mediafiles/' 
+                log.info('%s', self.debug_video_save_path) 
+                if self.DEBUG:                    
+                    video_name_save = os.path.join(str(self.debug_video_save_path) + '/'
                                                + request.video_name + '.mp4')    
                 else:
                     video_name_save = os.path.join('/home/app/web/mediafiles/' 

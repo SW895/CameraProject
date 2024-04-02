@@ -76,9 +76,9 @@ class CameraClient:
         self.email_password = config['EMAIL']['EMAIL_PASSWORD']
         self.email_port = config['EMAIL']['EMAIL_PORT']
         self.email_backend = 'smtp.gmail.com'
-        self.base_dir = base_dir = Path(__file__).resolve().parent.parent
-        self.model_path = base_dir / 'camera_app/weights/test_weights.pt'
-        self.save_path = base_dir / 'video_archive/'
+        self.base_dir = Path(__file__).resolve().parent.parent
+        self.model_path = self.base_dir / 'camera_app/weights/test_weights.pt'
+        self.save_path = self.base_dir / 'video_archive/'
         self.DEBUG = True
         self.timezone = pytz.timezone('Europe/Moscow')
         self.SAVE_VIDEO = False

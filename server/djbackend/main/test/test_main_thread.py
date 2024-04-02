@@ -1,16 +1,19 @@
-from django.test import TestCase
 import sys
 import configparser
-from types import FunctionType
-sys.path.insert(1, '/home/moreau/CameraProject/camera_app/')
-from main_thread_ref import CameraClient, ClientRequest
-from unittest.mock import Mock, patch
-from django.conf import settings
 import os
+from django.test import TestCase
+from types import FunctionType
+from pathlib import Path
+from unittest.mock import Mock
+
+
+base_dir = Path(__file__).resolve().parent.parent.parent.parent.parent
+sys.path.insert(1, str(base_dir) + '/camera_app/')
+from main_thread import CameraClient, ClientRequest
 
 
 config = configparser.ConfigParser()
-config.read('/home/moreau/CameraProject/camera_app/camera.ini')
+config.read(base_dir / 'camera_app/camera.ini')
 
 
 class TestGetHandlers(TestCase):

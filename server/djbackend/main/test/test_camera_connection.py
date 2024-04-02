@@ -1,17 +1,22 @@
-from django.test import TestCase
-import sys
-sys.path.insert(1, '/home/moreau/CameraProject/server/camera_conn/')
-from camera_conn_ref import EchoServer, SocketConn, ServerRequest
-from unittest.mock import Mock, patch
-from types import FunctionType
 import socket
 import json
 import threading
-from ..models import ArchiveVideo
+import sys
 import datetime
 import os
-from django.contrib.auth import get_user_model
 import pytz
+from django.test import TestCase
+from unittest.mock import Mock, patch
+from types import FunctionType
+from django.contrib.auth import get_user_model
+from pathlib import Path
+from ..models import ArchiveVideo
+
+
+base_dir = Path(__file__).resolve().parent.parent.parent.parent
+sys.path.insert(1, str(base_dir) + '/camera_conn/')
+from camera_conn import EchoServer, SocketConn, ServerRequest
+
 
 timezone = pytz.timezone('Europe/Moscow')
 User = get_user_model()
@@ -356,7 +361,7 @@ class TestSaveRecord(TestCase):
         for item in records:
             item.delete()
     
-    @patch('camera_conn_ref.connect_to_db')
+    @patch('camera_conn.connect_to_db')
     def test_connect_to_db_called(self, connect_to_db):
         connect_to_db.return_value = (None, None)
         self.test_object.save_record()
@@ -423,7 +428,7 @@ class TestHandlerVideoResponse(TestCase):
                                     video_size=125000)
         cls.video_name = '25-01-2021T14:29:18'
         cls.address = '127.0.0.1'
-        cls.video_path = '/home/moreau/CameraProject/server/djbackend/mediafiles/25-01-2021T14:29:18.mp4'
+        cls.video_path = str(base_dir) +'/djbackend/mediafiles/25-01-2021T14:29:18.mp4'
     
     @classmethod
     def tearDownClass(cls):
@@ -488,7 +493,7 @@ class TestHandlerUserAproveResponse(TestCase):
     def tearDownClass(cls):
         pass
     
-    @patch('camera_conn_ref.connect_to_db')
+    @patch('camera_conn.connect_to_db')
     def test_connect_to_db_called(self, connect_to_db):        
         connect_to_db.return_value = (None, None)
         self.test_object.ehandler_user_aprove_response(self.request_accepted, self.mock_socket, self.address)
@@ -600,7 +605,7 @@ class TestRestreamVideo(TestCase):
         response = self.test_object.signal_queue.get()
         self.assertEqual('stream', response.request_type)
 
-    @patch('camera_conn_ref.recv_package')
+    @patch('camera_conn.recv_package')
     def test_get_stream_source_connection(self, recv_package):
         recv_package.return_value = None, None, None, True
         self.test_object.stream_queue.put(SocketConn(self.mock_socket, self.address))
@@ -619,7 +624,7 @@ class TestRestreamVideo(TestCase):
         response_fail = self.test_object.signal_queue.get()
         self.assertEqual('restart stream', response_fail.request_type)
         
-    @patch('camera_conn_ref.recv_package')
+    @patch('camera_conn.recv_package')
     def test_empty_requester_list(self, recv_package):
         self.test_object.stream_queue.put(SocketConn(self.mock_socket, self.address))
         recv_package.return_value = self.mock_socket, bytes(10), bytes(1), False
@@ -631,7 +636,7 @@ class TestRestreamVideo(TestCase):
         recv_package.assert_called_once()
         self.assertEqual('stop', response.request_type)
 
-    @patch('camera_conn_ref.recv_package')
+    @patch('camera_conn.recv_package')
     def test_one_requester(self, recv_package):
         self.test_object.stream_queue.put(SocketConn(self.mock_socket, self.address))
         recv_package.return_value = self.mock_socket, bytes(10), bytes(1), False
@@ -644,7 +649,7 @@ class TestRestreamVideo(TestCase):
         recv_package.assert_called_once()
         requester_1.connection.send.assert_called_once()
 
-    @patch('camera_conn_ref.recv_package')
+    @patch('camera_conn.recv_package')
     def test_multiple_requesters(self, recv_package):
         self.test_object.stream_queue.put(SocketConn(self.mock_socket, self.address))
         recv_package.return_value = self.mock_socket, bytes(10), bytes(1), False
