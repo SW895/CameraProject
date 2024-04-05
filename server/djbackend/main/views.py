@@ -21,7 +21,6 @@ def main_view(request):
         'main/main_page.html',
     )
 
-
 @login_required
 def stream_view(request):
     return render(
@@ -29,12 +28,10 @@ def stream_view(request):
         'main/stream_page.html',
     )
 
-
-@login_required
-def camera_source_view(request):
-    return StreamingHttpResponse(gen(),
-                                 content_type='multipart/x-mixed-replace; boundary=frame')
-
+#@login_required
+#def camera_source_view(request):
+#    return StreamingHttpResponse(gen(),
+#                                 content_type='multipart/x-mixed-replace; boundary=frame')
 
 @login_required
 def archive_view(request):

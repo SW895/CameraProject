@@ -4,3 +4,5 @@ gunicorn==21.2.0
 redis==5.0.0
 celery==5.3.4
 pytz==2023.3.post1
+channels==4.0.0
+daphne==4.1.0

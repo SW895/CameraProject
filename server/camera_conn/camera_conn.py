@@ -15,7 +15,7 @@ from camera_utils import (check_thread,
                     recv_package)
 
 
-logging.basicConfig(level=90,
+logging.basicConfig(level=logging.DEBUG,
                     format="%(name)s | %(levelname)s | %(asctime)s | %(message)s",
                     datefmt="%Y-%m-%dT%H:%M:%S",
                     )
@@ -52,9 +52,9 @@ class EchoServer():
 
     def __init__(self, internal_address, internal_port, external_address, external_port):
         self.stream_queue = queue.Queue(maxsize=1)
-        self.stream_q_timeout = 5
+        self.stream_q_timeout = 20
         self.signal_queue = queue.Queue()
-        self.signal_q_timeout = 5
+        self.signal_q_timeout = 20
         self.stream_requesters_queue = queue.Queue()
         self.stream_requesters_timeout = 5
         self.video_requesters_queue = queue.Queue()
@@ -226,6 +226,7 @@ class EchoServer():
             except:
                 log.warning('Connection lost. Shutting down thread')
                 break
+        conn.close()
 
     def ehandler_stream_source(self, request, conn, addr):
         log = logging.getLogger('Stream source handler')
@@ -470,12 +471,10 @@ class EchoServer():
         while True:
             try:
                 reply = conn.recv(self.buff_size)
-            except:
-                conn.close()                
+            except:             
                 break
             else:
                 if reply == b"":
-                    conn.close()
                     break
         log.warning('Connection lost')
         if signal != None:

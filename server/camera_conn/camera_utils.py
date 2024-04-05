@@ -73,7 +73,7 @@ def recv_package(conn, data, payload_size):
         msg_size = struct.unpack("Q",packed_msg_size)[0]
 
         while len(data) < msg_size:
-            packet = conn.connection.recv(65536)
+            packet = conn.connection.recv(1048576)
             if packet == b"":
                 conn.connection.close()
                 connection_failure = True

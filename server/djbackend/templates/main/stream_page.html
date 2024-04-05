@@ -2,6 +2,44 @@
 
 {% block content %}   
 <div class="ui massive image">
-    <img src="{% url 'camera-source' %}">
+    <img id="videostream" src="">
 </div>
+    <input id="play" type="button" value="Play">
+    <input id="pause" type="button" value="Pause">
+
+    <script>
+        const img = document.getElementById("videostream");        
+        const chatSocket = new WebSocket(
+            'ws://'
+            + window.location.host
+            + '/ws/stream/'
+        );
+
+        chatSocket.onopen = function(event) {
+            console.log('socket connected');
+        };
+
+        chatSocket.onmessage = function(event) {
+            frameUpdate = event.data;
+            console.log('message received')
+            img.src = "data:image/jpeg;base64," + frameUpdate;
+        };
+
+        chatSocket.onclose = function(event) {
+            chatSocket.close()
+            console.error('Chat socket closed unexpectedly');
+        };       
+
+        document.querySelector('#play').onclick = function(e) {
+            chatSocket.send(JSON.stringify({
+                'signal': 'play'
+            }));
+        };
+
+        document.querySelector('#pause').onclick = function(e) {
+            chatSocket.send(JSON.stringify({
+                'signal': 'pause'
+            }));
+        };
+    </script>
 {% endblock %}

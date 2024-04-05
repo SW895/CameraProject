@@ -12,6 +12,7 @@ import ssl
 import pytz
 import logging
 import time
+import base64
 from itertools import cycle
 from pathlib import Path
 from utils import check_thread, new_thread
@@ -79,7 +80,7 @@ class CameraClient:
         self.base_dir = Path(__file__).resolve().parent.parent
         self.model_path = self.base_dir / 'camera_app/weights/test_weights.pt'
         self.save_path = self.base_dir / 'video_archive/'
-        self.DEBUG = True
+        self.DEBUG = False
         self.timezone = pytz.timezone('Europe/Moscow')
         self.SAVE_VIDEO = False
         self.DETECTION = False
@@ -159,16 +160,16 @@ class CameraClient:
 
     @check_thread
     def signal_connection(self):
-        log = logging.getLogger('Signal connection')
-        request = ClientRequest(request_type='signal')
+        log = logging.getLogger('Signal connection')        
         while True:
-            sock = self.get_connection(request)
-            if sock:    
+            request = ClientRequest(request_type='signal')
+            sock = self.get_connection(request, 1)
+            if sock:
                 while True:
                     log.info('Waiting for a message')
                     reply = sock.recv(self.buff_size)
 
-                    if reply == b"":
+                    if reply.decode() == "":
                         log.info('Connection broken. Reconnecting ...')
                         sock.close()
                         break
@@ -176,16 +177,21 @@ class CameraClient:
                         log.debug('MESSAGE:%s', reply.decode())
                         msg_list = reply.decode().split('|')
                         for msg in msg_list:
+                            log.info('Signal list: %s', msg_list)
                             if msg != '':
                                 request = json.loads(msg, object_hook=lambda d:ClientRequest(**d))
-                        log.info('Signal received: %s', request.request_type)
-                        if request.request_type in self.handlers.keys():
-                           self.handlers[request.request_type](self, request)                           
-                        else:
-                            sock.close()
-                            if self.DEBUG:
-                                self.test_queue.put('Wrong request')
-                        if self.DEBUG:                                
+                                log.info('Signal received: %s', request.request_type)
+                            else:
+                                continue
+                            if request.request_type in self.handlers.keys():
+                                log.info('Calling handler: %s', request.request_type)
+                                self.handlers[request.request_type](self, request)
+                                request = None
+                            else:                                
+                                if self.DEBUG:
+                                    self.test_queue.put('Wrong request')
+                        log.info('No new messages')
+                        if self.DEBUG:
                                 break
                 if self.DEBUG:
                     self.test_queue.put('Handler called')
@@ -204,6 +210,9 @@ class CameraClient:
         if self.DEBUG:
             self.test_queue.put('Records saved')
     
+    def handler_restart_stream(self, request):
+        self.handler_stream(request)
+
     @check_thread
     def handler_stream(self, request):
         log = logging.getLogger('Handle stream request')
@@ -213,7 +222,7 @@ class CameraClient:
         while True:
             request = ClientRequest(request_type='stream_source')
             log.debug('Connecting to server')
-            stream_sock = self.get_connection(request)
+            stream_sock = self.get_connection(request, 1)
             if stream_sock:
                 log.debug('Connected to server. Stream begin')
                 while True:
@@ -253,12 +262,15 @@ class CameraClient:
     
     def convert_frame(self, frame):
         ret, jpeg = cv2.imencode('.jpg', frame)
-        data_bytes = jpeg.tobytes() 
-        message = struct.pack("Q",len(data_bytes)) + data_bytes
+        b64_img = base64.b64encode(jpeg)
+        message = struct.pack("Q",len(b64_img)) + b64_img
+        #ret, jpeg = cv2.imencode('.jpg', frame)
+        #data_bytes = jpeg.tobytes() 
+        #message = struct.pack("Q",len(data_bytes)) + data_bytes        
         return message
 
     @new_thread
-    def handler_user_aprove_request(self, request):
+    def handler_aprove_user_request(self, request):
         log = logging.getLogger('Aprove user request')
         log.info('Thread started')
         username = request.username
@@ -276,7 +288,7 @@ class CameraClient:
                                     request_result='denied')
             log.info('%s denied', username)              
             self.send_email(username, email, False)
-        sock = self.get_connection(request)
+        sock = self.get_connection(request, 1)
         sock.close()
 
         if self.DEBUG:
@@ -340,12 +352,12 @@ class CameraClient:
                 log.debug('video length: %s', len(video_bytes))
                 sock = self.get_connection(ClientRequest(request_type='video_response',
                                            video_name=request.video_name,
-                                           video_size=str(len(video_bytes))))
+                                           video_size=str(len(video_bytes))), 1)
                 sock.sendall(video_bytes)            
         else:
             sock = self.get_connection(ClientRequest(request_type='video_response',
                                            video_name=request.video_name,
-                                           video_size=0))
+                                           video_size=0), 1)
             log.error('No such video %s', request.video_name)
             self.test_queue.put('no such video')
         sock.close()
@@ -428,7 +440,7 @@ class CameraClient:
         new_record = json.dumps(new_item)   
 
         sock = self.get_connection(ClientRequest(request_type='new_record',
-                                                 db_record=new_item))
+                                                 db_record=new_item), 1)
 
         if sock:
             try:

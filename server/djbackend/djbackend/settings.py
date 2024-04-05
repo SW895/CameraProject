@@ -15,6 +15,7 @@ STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 INSTALLED_APPS = [
+    'daphne',    
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -24,6 +25,7 @@ INSTALLED_APPS = [
 
     'main.apps.MainConfig',
     'registration.apps.RegistrationConfig',
+    'channels',    
 ]
 
 MIDDLEWARE = [
@@ -56,6 +58,16 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'djbackend.wsgi.application'
+#Daphne
+ASGI_APPLICATION = 'djbackend.asgi.application'
+#CHANNEL_LAYERS = {
+#    "default": {
+#        "BACKEND": "channels_redis.core.RedisChannelLayer",
+#        "CONFIG": {
+#            "hosts": [("127.0.0.1", 6379)],
+#        },
+#    },
+#}
 
 AUTH_PASSWORD_VALIDATORS = [
     {
