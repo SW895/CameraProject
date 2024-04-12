@@ -21,11 +21,18 @@ def main_view(request):
         'main/main_page.html',
     )
 
-@login_required
+#@login_required
 def stream_view(request):
+    # request camera list from DB
+    camera_list = [1,2,3,4]
+
     return render(
         request,
         'main/stream_page.html',
+        context={
+            'camera_list':camera_list,
+            'cam_list': json.dumps(camera_list),
+        }        
     )
 
 #@login_required

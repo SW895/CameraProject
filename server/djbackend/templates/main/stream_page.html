@@ -1,45 +1,66 @@
 {% extends "base.html" %}
 
 {% block content %}   
-<div class="ui massive image">
-    <img id="videostream" src="">
-</div>
-    <input id="play" type="button" value="Play">
-    <input id="pause" type="button" value="Pause">
 
-    <script>
-        const img = document.getElementById("videostream");        
-        const chatSocket = new WebSocket(
-            'ws://'
-            + window.location.host
-            + '/ws/stream/'
+<div class="ui grid">
+    {% for camera in camera_list %}
+    <div class="four wide column">
+        <div class="ui big image">
+            <img id="{{ camera }}img" src="" width="480" height="360">
+        </div>
+        <div class="ui center aligned container">
+            <button id="{{ camera }}play" class="ui labeled icon button">
+                <i class="play icon"></i>
+                Play
+            </button>
+            <button id="{{ camera }}pause" class="ui labeled icon button">
+                <i class="pause icon"></i>
+                Pause
+            </button>
+        </div>
+    </div>   
+    {% endfor %}
+  </div>
+
+<script>
+    var camera_list = JSON.parse('{{ cam_list|safe }}');
+
+    for (camera of camera_list) {
+        createScoket(camera)
+    }     
+
+    async function createScoket(camera) {
+        const img = document.getElementById(camera+"img"); 
+        const videoSocket = new WebSocket(
+        'ws://'
+        + window.location.host
+        + '/ws/stream/'
+        + camera
+        + '/'
         );
 
-        chatSocket.onopen = function(event) {
-            console.log('socket connected');
+        videoSocket.onopen = async function(event) {
+            console.log('socket connected', videoSocket);
         };
 
-        chatSocket.onmessage = function(event) {
+        videoSocket.onmessage = async function(event) {
             frameUpdate = event.data;
             console.log('message received')
             img.src = "data:image/jpeg;base64," + frameUpdate;
         };
 
-        chatSocket.onclose = function(event) {
-            chatSocket.close()
+        videoSocket.onclose = async function(event) {
+            videoSocket.close()
             console.error('Chat socket closed unexpectedly');
-        };       
-
-        document.querySelector('#play').onclick = function(e) {
-            chatSocket.send(JSON.stringify({
-                'signal': 'play'
-            }));
         };
 
-        document.querySelector('#pause').onclick = function(e) {
-            chatSocket.send(JSON.stringify({
-                'signal': 'pause'
-            }));
+        document.getElementById(camera+"play").onclick = async function(e) {
+            videoSocket.send(JSON.stringify({'signal': 'play'}));
         };
-    </script>
+
+        document.getElementById(camera+"pause").onclick = async function(e) {
+            videoSocket.send(JSON.stringify({'signal': 'pause'}));
+        };
+    }        
+</script>
 {% endblock %}

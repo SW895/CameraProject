@@ -56,35 +56,3 @@ def connect_to_db(DEBUG):
     else:
         cur = db_conn.cursor()
         return db_conn, cur
-
-def recv_package(conn, data, payload_size):
-
-    connection_failure = False
-
-    packet = conn.connection.recv(4096)
-    if packet == b"":
-        conn.connection.close()
-        connection_failure = True
-        
-    if not connection_failure:
-        data += packet   
-        packed_msg_size = data[:payload_size]
-        data = data[payload_size:]
-        msg_size = struct.unpack("Q",packed_msg_size)[0]
-
-        while len(data) < msg_size:
-            packet = conn.connection.recv(1048576)
-            if packet == b"":
-                conn.connection.close()
-                connection_failure = True
-                print(f'Stream failure')
-                break
-            data += packet
-
-        frame_data = data[:msg_size]
-        data  = data[msg_size:]
-
-        return conn, frame_data, data, False
-
-    else:
-        return None, None, None, True         
