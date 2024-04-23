@@ -49,7 +49,7 @@ class ClientRequest:
         self.email = email
         self.request_result = request_result
         self.db_record = db_record
-        self.camera_name = camera_name
+        self.camera_name = str(camera_name)
         self.connection = connection
         self.address = address
         self.lifetime = lifetime
@@ -73,9 +73,9 @@ class ClientRequest:
 
 class Camera:
 
-    def __init__(self, camera_source, serial_number):
+    def __init__(self, camera_source, camera_name):
         self.camera_source = camera_source
-        self.camera_name = serial_number
+        self.camera_name = camera_name
         self.frame_queue = queue.Queue(maxsize=1)
 
 
@@ -102,7 +102,8 @@ class CameraClient:
         self.SAVE_VIDEO = False
         self.DETECTION = False
         self.model = None
-        self.APROVE_ALL = bool(config['USER_LIST']['APROVE_ALL'])        
+        self.APROVE_ALL = bool(config['USER_LIST']['APROVE_ALL'])
+        self.camera_list = self.get_camera_list()
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -421,41 +422,52 @@ class CameraClient:
                 sock.close()
 
     def run_client(self):
-        self.get_camera_list()
+        self.init_camera()
         self.signal_connection()
         self.camera_thread(self.camera_list[0])
     
     def init_camera(self):
-        request = ClientRequest(request_type='init_camera')
+        request = ClientRequest(request_type='new_record', camera_name='1')
         sock = self.get_connection(request, 1)
         records = ''
         for camera in self.camera_list:
-            records =+ json.dumps(camera.__dict__) + '|'
+            logging.info('%s',camera.camera_name)
+            records += json.dumps({'camera_name':str(camera.camera_name)}) + "\n"
+            logging.info(records)
         sock.send(records.encode())
+        sock.close()
 
     def handler_stream(self, request):
-        for camera in self.camera_list:
-            self.videostream(camera)
+        self.videostream(request.camera_name)
 
     @new_thread
-    def videostream(self, camera):
-        log = logging.getLogger(str(camera.camera_name))
+    def videostream(self, camera_name):
+        log = logging.getLogger(str(camera_name))
         log.info('Thread started')
         signal = ''
 
-        request = ClientRequest(request_type='stream_source', camera_name=str(camera.camera_name))
+        request = ClientRequest(request_type='stream_source', camera_name=camera_name)
         log.debug('Connecting to server')
         stream_sock = self.get_connection(request, 1)
+        camera = None
+        for cam in self.camera_list:
+            if cam.camera_name == camera_name:
+                camera = cam
+                break
         if stream_sock:
             log.debug('Connected to server. Stream begin')
             while True:
-                frame = camera.frame_queue.get(timeout=1)
-                message = self.convert_frame(frame)
                 try:
-                    stream_sock.sendall(message)
-                except BrokenPipeError or ConnectionResetError:
-                    signal = 'stop'
-                    break
+                    frame = camera.frame_queue.get(timeout=1)
+                except:
+                    pass
+                else:
+                    message = self.convert_frame(frame)
+                    try:
+                        stream_sock.sendall(message)
+                    except BrokenPipeError or ConnectionResetError:
+                        signal = 'stop'
+                        break
 
             stream_sock.close()                
             if self.DEBUG:
@@ -470,7 +482,7 @@ class CameraClient:
     def get_camera_list(self):
         # { 'camera_name(serial_number)':'camera_address'}
         # {'123456789':'rtsp://username:password@192.168.1.64/1'}
-        self.camera_list = [Camera(0, 1), Camera(0, 2), Camera(0, 3), Camera(0, 4)]
+        return [Camera(0, '1'), Camera(0, '2'), Camera(0, '3'), Camera(0, '4'), Camera(0,'5'), Camera(0, '6'), Camera(0, '7'), Camera(0,'8'), Camera(0, '9'), Camera(0, '10'), Camera(0, '11'), Camera(0,'12')]
 
     @new_thread
     def camera_thread(self, camera):

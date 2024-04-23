@@ -8,6 +8,7 @@ import datetime
 import logging
 import pytz
 import time
+import threading
 from pathlib import Path
 from psycopg import sql
 from camera_utils import (check_thread, 
@@ -20,6 +21,25 @@ logging.basicConfig(level=logging.DEBUG,
                     datefmt="%Y-%m-%dT%H:%M:%S",
                     )
 
+def check_named_thread(target_function):
+
+    def inner(*args, **kwargs):
+        thread_running = False
+        camera_name = str(args[1])
+        for th in threading.enumerate():
+            if th.name == target_function.__name__ + camera_name:
+                thread_running = True
+                break
+
+        if not thread_running :
+            logging.debug('Starting thread %s', target_function.__name__ + camera_name)                
+            thread = threading.Thread(target=target_function, args=args, name=target_function.__name__ + camera_name)
+            thread.start()               
+        else:
+            logging.debug('Thread %s already running', target_function.__name__ + camera_name)  
+
+        return None
+    return inner
 
 class ServerRequest:
 
@@ -42,7 +62,7 @@ class ServerRequest:
         self.email = email
         self.request_result = request_result
         self.db_record = db_record
-        self.camera_name = camera_name
+        self.camera_name = str(camera_name)
         self.connection = connection
         self.address = address
         self.lifetime = lifetime
@@ -75,6 +95,8 @@ class EchoServer:
         self.timezone = pytz.timezone('Europe/Moscow')
         self.base_dir = Path(__file__).resolve().parent.parent
         self.debug_video_save_path = self.base_dir / 'djbackend/mediafiles/'
+        self.camera_records_queue = queue.Queue()
+        self.stream_request = {}
 
 
     def __getstate__(self):
@@ -235,10 +257,13 @@ class EchoServer:
     @new_thread
     def ehandler_new_record(self, request):
         log = logging.getLogger('New records')
-        result = b""
-        data = b""
+        if request.db_record:
+            self.save_record()
+        elif request.camera_name:
+            self.save_or_update_camera()
 
-        self.save_record()
+        result = b""
+        data = b""        
         log.info('Receiving new records')
         while True:                
             data = request.connection.recv(self.buff_size)
@@ -250,8 +275,12 @@ class EchoServer:
         request.connection.close()
         records = result.decode().split('\n')
         for record in records:
-            if record != "":
-                self.save_db_records_queue.put_nowait(json.loads(record))
+            if record != "" and request.db_record:
+                log.debug('RECORD:%s', record)
+                self.save_db_records_queue.put_nowait(json.loads(record))                
+            elif record != "" and request.camera_name:
+                log.debug('RECORD:%s', record)
+                self.camera_records_queue.put(json.loads(record))
 
     @check_thread
     def save_record(self):
@@ -264,7 +293,6 @@ class EchoServer:
             while self.save_db_records_queue.qsize() > 0:
                 record = self.save_db_records_queue.get()
                 log.info('Got new record')
-                log.critical('%s, %s', record['date_created'], type(record['date_created']))
                 columns = record.keys()
                 values = [record[column] for column in columns]
                 ret = sql.SQL('INSERT INTO main_archivevideo({fields}) VALUES ({values});').format(
@@ -287,6 +315,40 @@ class EchoServer:
                 self.test_queue.put('Records saved')    
             cur.close()
             db_conn.close()
+        
+        if self.DEBUG and not db_conn:
+            self.test_queue.put('DB connection failed')
+
+    @check_thread
+    def save_or_update_camera(self):
+        log = logging.getLogger('Save camera to DB')
+        log.info('Connection to DB')
+        db_conn, cur = connect_to_db(self.DEBUG)
+        self.stream_request = {}
+        #self.stream_request[stream_request.camera_name] = (queue.Queue(), queue.Queue(maxsize=1))
+        if db_conn:
+            log.info('Successfully connected to db')
+            while self.camera_records_queue.qsize() > 0:
+                record = self.camera_records_queue.get()
+                log.info('Got new record')
+                try:
+                    cur.execute("INSERT INTO main_camera(camera_name, is_active) VALUES (%s, True);", (record['camera_name'],))
+                    log.info('Camera %s added', record['camera_name'])                    
+                except:
+                    try:
+                        cur.execute("UPDATE main_camera SET is_active=True WHERE camera_name=(%s);",(record['camera_name'],))
+                        log.info('Camera %s successfully activated', record['camera_name'])
+                    except:
+                        log.error('Corrupted camera record')
+                self.stream_request[record['camera_name']] = (queue.Queue(), queue.Queue(maxsize=1))
+                db_conn.commit()
+            cur.close()
+            db_conn.close()    
+
+            log.info('No more new records')
+
+            if self.DEBUG:
+                self.test_queue.put('Records saved')
         
         if self.DEBUG and not db_conn:
             self.test_queue.put('DB connection failed')
@@ -423,8 +485,8 @@ class EchoServer:
         if self.DEBUG:
             self.test_queue.put('connection failed')
 
-    def ehandler_init_camera(self, request):
-        pass
+    #def ehandler_init_camera(self, request):
+    #    db_conn, cur = connect_to_db(self.DEBUG)
 
     def ehandler_stream_source(self, request):
         self.external_stream_responses.put(request)
@@ -433,11 +495,12 @@ class EchoServer:
         self.internal_stream_requests.put(request)
         self.restream_video()
     
+    """
     @check_thread
     def restream_video(self):
         log = logging.getLogger('Restream video')
         log.debug('Thread started')
-        self.signal_queue.put(ServerRequest(request_type='stream'))
+        #self.signal_queue.put(ServerRequest(request_type='stream'))
         stream_requesters = []
         stream_responses = []
         time_created = time.perf_counter()
@@ -445,6 +508,8 @@ class EchoServer:
         while True:
             while self.internal_stream_requests.qsize() > 0:                
                 stream_requesters.append(self.internal_stream_requests.get())
+                if not self.check(stream_requesters[-1].camera_name):
+                    self.signal_queue.put(ServerRequest(request_type='stream', camera_name=stream_requesters[-1].camera_name))
                 log.debug('Get stream requester: %s', stream_requesters[-1].camera_name)
 
             while self.external_stream_responses.qsize() > 0:
@@ -471,7 +536,7 @@ class EchoServer:
                     log.debug('response removed')
                 break
         log.debug('Thread ended')
-    
+
     @new_thread
     def stream_channel(self, requester, response):
         log = logging.getLogger(requester.camera_name)
@@ -489,6 +554,82 @@ class EchoServer:
         requester.connection.close()
         response.connection.close()
         log.debug('Channel closed')
+
+    def check(self,name):
+        for th in threading.enumerate():
+            if th.name == 'stream_channel' + name:
+                return True
+        return False
+
+
+
+    """
+    @check_thread
+    def restream_video(self):
+        log = logging.getLogger('Restream Video')
+        log.info('Thread started')
+        time_created = time.perf_counter()
+        while True:
+            while self.internal_stream_requests.qsize() > 0:
+                log.info('Get requester')
+                stream_request = self.internal_stream_requests.get()                
+                self.stream_request[stream_request.camera_name][0].put(stream_request)
+                self.stream_channel(stream_request.camera_name)               
+                
+            while self.external_stream_responses.qsize() > 0:
+                log.info('Get response')
+                stream_response = self.external_stream_responses.get()
+                self.stream_request[stream_response.camera_name][1].put(stream_response)
+
+            if (time.perf_counter() - time_created) > self.stream_request_timeout:
+                break
+
+    @check_named_thread
+    def stream_channel(self, camera_name):
+        self.signal_queue.put(ServerRequest(request_type='stream', camera_name=camera_name)) 
+        requesters_list = []
+        log = logging.getLogger(str(camera_name))
+        log.info('Channel started')
+        try:
+            response = self.stream_request[camera_name][1].get(timeout=self.stream_request_timeout)
+        except:
+            log.warning('No stream response')
+            return None
+
+        while response.connection:
+            log.debug('GET NEW REQUESTERS')
+            while self.stream_request[camera_name][0].qsize() > 0:
+                log.info('Get new requester, REQUESTER LIST LEN: %s', len(requesters_list))
+                requesters_list.append(self.stream_request[camera_name][0].get())
+                log.info('Get new requester, REQUESTER ADDED: %s', len(requesters_list))
+            log.debug('RECEIVING FRAME')
+            data = response.connection.recv(1048000)
+            log.debug('FRAME RECEIVED')
+            if data == b"":
+                log.debug('Connection to camera lost')
+                break
+            if requesters_list:
+                for requester in requesters_list:
+                    try:
+                        requester.connection.send(data)
+                    except:
+                        log.debug('Connection to consumer lost')
+                        requester.connection.close()
+                        requesters_list.remove(requester)
+                    else:
+                        log.debug('FRAME SENDED')
+            else:
+                log.info('No requesters')
+                break
+        log.debug('STREAM ENDED')
+        if requesters_list:
+            for requester in requesters_list:
+                requester.connection.close()
+        response.connection.close()
+        log.debug('Channel closed')
+            
+
+
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ from django.views import generic
 from django.core.cache import cache
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
-from .models import ArchiveVideo, CachedVideo
+from .models import ArchiveVideo, CachedVideo, Camera
 from .utils import gen
 from datetime import timedelta, datetime
 from .tasks import update_cache
@@ -23,15 +23,16 @@ def main_view(request):
 
 #@login_required
 def stream_view(request):
-    # request camera list from DB
-    camera_list = [1,2,3,4]
-
+    camera_list = Camera.objects.filter(is_active=True)
+    simplified_camera_list = []
+    for camera in camera_list:
+        simplified_camera_list.append(camera.camera_name)
     return render(
         request,
         'main/stream_page.html',
         context={
             'camera_list':camera_list,
-            'cam_list': json.dumps(camera_list),
+            'cam_list': json.dumps(simplified_camera_list),
         }        
     )
 

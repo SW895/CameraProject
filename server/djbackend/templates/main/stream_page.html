@@ -6,21 +6,21 @@
     {% for camera in camera_list %}
     <div class="four wide column">
         <div class="ui big image">
-            <img id="{{ camera }}img" src="" width="480" height="360">
+            <img id="{{ camera.camera_name }}img" src="" width="480" height="360">
         </div>
         <div class="ui center aligned container">
-            <button id="{{ camera }}play" class="ui labeled icon button">
+            <button id="{{ camera.camera_name }}play" class="ui labeled icon button">
                 <i class="play icon"></i>
                 Play
             </button>
-            <button id="{{ camera }}pause" class="ui labeled icon button">
+            <button id="{{ camera.camera_name }}pause" class="ui labeled icon button">
                 <i class="pause icon"></i>
                 Pause
             </button>
         </div>
     </div>   
     {% endfor %}
-  </div>
+</div>
 
 <script>
     var camera_list = JSON.parse('{{ cam_list|safe }}');
@@ -40,12 +40,11 @@
         );
 
         videoSocket.onopen = async function(event) {
-            console.log('socket connected', videoSocket);
+            console.log(videoSocket)
         };
 
         videoSocket.onmessage = async function(event) {
             frameUpdate = event.data;
-            console.log('message received')
             img.src = "data:image/jpeg;base64," + frameUpdate;
         };
 
