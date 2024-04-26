@@ -463,6 +463,7 @@ class CameraClient:
                     pass
                 else:
                     message = self.convert_frame(frame)
+                    #save_frame(message)
                     try:
                         stream_sock.sendall(message)
                     except BrokenPipeError or ConnectionResetError:
@@ -482,8 +483,9 @@ class CameraClient:
     def get_camera_list(self):
         # { 'camera_name(serial_number)':'camera_address'}
         # {'123456789':'rtsp://username:password@192.168.1.64/1'}
-        return [Camera(0, '1'), Camera(0, '2'), Camera(0, '3'), Camera(0, '4'), Camera(0,'5'), Camera(0, '6'), Camera(0, '7'), Camera(0,'8'), Camera(0, '9'), Camera(0, '10'), Camera(0, '11'), Camera(0,'12')]
-
+        #return [Camera(0, '1'), Camera(0, '2'), Camera(0, '3'), Camera(0, '4'), Camera(0,'5'), Camera(0, '6'), Camera(0, '7'), Camera(0,'8'), Camera(0, '9'), Camera(0, '10'), Camera(0, '11'), Camera(0,'12')]
+        return [Camera(0, '88'), Camera(0, '99')]
+                
     @new_thread
     def camera_thread(self, camera):
         cap = cv2.VideoCapture(camera.camera_source)
@@ -491,10 +493,10 @@ class CameraClient:
         empty_frame_counter = 0
         detection = False
         self.get_model()
-
+        counter = 0
         while cap.isOpened():
 
-            success, frame = cap.read()        
+            success, frame = cap.read()
 
             if success:
                 
@@ -513,7 +515,10 @@ class CameraClient:
                     annotated_frame = frame               
                 for camera in self.camera_list: # FOR DEBUG PURPOSE
                     if camera.frame_queue.qsize() == 0:                
-                        camera.frame_queue.put(annotated_frame)      
+                        camera.frame_queue.put(annotated_frame)
+                        message = self.convert_frame(frame)
+                        counter = save_frame(message, counter)
+
             
                 cv2.imshow("YOLOv8 Inference", annotated_frame)
 
@@ -533,6 +538,13 @@ class CameraClient:
                 break    
         cap.release()
         cv2.destroyAllWindows()
+
+
+def save_frame(frame, counter):
+    if counter == 0:
+        with open('z.txt', 'wb') as file:
+            file.write(frame)
+    return counter
 
 if __name__ == '__main__':
     config = configparser.ConfigParser()
