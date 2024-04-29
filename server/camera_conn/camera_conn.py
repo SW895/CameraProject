@@ -12,8 +12,8 @@ import threading
 from pathlib import Path
 from psycopg import sql
 from camera_utils import (check_thread, 
-                    new_thread, 
-                    connect_to_db)
+                        new_thread, 
+                        connect_to_db)
 
 
 logging.basicConfig(level=logging.DEBUG,
@@ -21,6 +21,7 @@ logging.basicConfig(level=logging.DEBUG,
                     datefmt="%Y-%m-%dT%H:%M:%S",
                     )
 
+"""
 def check_named_thread(target_function):
 
     def inner(*args, **kwargs):
@@ -40,7 +41,7 @@ def check_named_thread(target_function):
 
         return None
     return inner
-
+"""
 class ServerRequest:
 
     def __init__(self, request_type, 
@@ -66,6 +67,116 @@ class ServerRequest:
         self.connection = connection
         self.address = address
         self.lifetime = lifetime
+
+class StreamChannel:
+
+    def __init__(self):
+        self.consumer_queue = queue.Queue()
+        self._mutex = threading.Lock()
+        self._thread_working = threading.Event()
+        self._thread_working.set()
+        self._thread_dead = threading.Event()
+        self._thread_dead.set()
+        self._source_connected = threading.Event()
+        self._consumer_number = 0
+        self._has_consumers = threading.Event()
+        self.stream_source = None
+        self.source_connection_timeout = 1000000
+    
+    def any_consumers(self):
+        return self._has_consumers.is_set()
+
+    def no_consumers(self):
+        self._has_consumers.clear()
+
+    def has_consumers(self):
+        self._has_consumers.set()
+
+    def thread_dead(self):
+        self._thread_dead.set()
+
+    def thread_working(self):
+        return self._thread_working.is_set()
+    
+    def kill_thread(self):
+        self._thread_working.clear()
+        self._thread_dead.wait()
+
+    def run_thread(self, camera_name):
+        self._thread_working.set()
+        self._thread_dead.clear()        
+        
+        self.stream_channel(camera_name)
+    
+    def wait_source_connection(self):
+        return self._source_connected.wait(timeout=self.source_connection_timeout)
+
+    def source_connected(self):
+        self._source_connected.set()
+
+    def source_disconnected(self):
+        self._source_connected.clear()
+
+    #def stream_source_exist(self):
+        #return self._source_connected.is_set()
+
+    def add_consumer(self):
+        with self._mutex:
+            self._consumer_number += 1
+            if self._consumer_number == 1:
+                self.has_consumers()
+    
+    def remove_consumer(self):
+        with self._mutex:
+            self._consumer_number -= 1
+            if self._consumer_number == 0:
+                self.no_consumers()
+
+    def consumer_number(self):
+        with self._mutex:
+            return self._consumer_number
+
+    @new_thread
+    def stream_channel(self, camera_name):
+        log = logging.getLogger(str(camera_name))
+        log.debug('Thread started')
+        consumer_list = []
+
+        if self.wait_source_connection():
+
+            while self.thread_working() and (self.consumer_number() > 0):
+            
+                while self.consumer_queue.qsize() > 0:
+                    log.info('Get new consumer')
+                    consumer_list.append(self.consumer_queue.get())
+            
+                if consumer_list:
+                    data = self.stream_source.connection.recv(1048576)
+
+                    if data == b"":
+                        log.debug('Connection to camera lost')
+                        break
+
+                    for consumer in consumer_list:
+                        try:
+                            consumer.connection.send(data)
+                        except:
+                            log.debug('Connection to consumer lost')
+                            consumer.connection.close()
+                            consumer_list.remove(consumer)
+                            self.remove_consumer()
+
+        if consumer_list:
+            for consumer in consumer_list:
+                consumer.connection.close()
+        
+        self.stream_source.connection.close()
+        self.stream_source = None
+        self.source_disconnected()
+        log.debug('Stream channel closed')
+        self.thread_dead()
+            
+            
 
 
 class EchoServer:
@@ -95,8 +206,9 @@ class EchoServer:
         self.timezone = pytz.timezone('Europe/Moscow')
         self.base_dir = Path(__file__).resolve().parent.parent
         self.debug_video_save_path = self.base_dir / 'djbackend/mediafiles/'
+        self.video_save_path = '/home/app/web/mediafiles/'
         self.camera_records_queue = queue.Queue()
-        self.stream_request = {}
+        self.stream_channels = {}
 
 
     def __getstate__(self):
@@ -385,7 +497,7 @@ class EchoServer:
                     video_name_save = os.path.join(str(self.debug_video_save_path) + '/'
                                                + request.video_name + '.mp4')    
                 else:
-                    video_name_save = os.path.join('/home/app/web/mediafiles/' 
+                    video_name_save = os.path.join(str(self.video_save_path) 
                                                + request.video_name + '.mp4')
                 log.info('Saving file')
                 with open(video_name_save, "wb") as video:
@@ -485,152 +597,49 @@ class EchoServer:
         if self.DEBUG:
             self.test_queue.put('connection failed')
 
-    #def ehandler_init_camera(self, request):
-    #    db_conn, cur = connect_to_db(self.DEBUG)
-
     def ehandler_stream_source(self, request):
         self.external_stream_responses.put(request)
     
     def ihandler_stream_request(self, request):
         self.internal_stream_requests.put(request)
-        self.restream_video()
-    
-    """
+        self.videostream_manager()
+
     @check_thread
-    def restream_video(self):
-        log = logging.getLogger('Restream video')
-        log.debug('Thread started')
-        #self.signal_queue.put(ServerRequest(request_type='stream'))
-        stream_requesters = []
-        stream_responses = []
-        time_created = time.perf_counter()
+    def videostream_manager(self):
+        log = logging.getLogger('VideoStream Manager')
+        log.debug('Managger started')
 
-        while True:
-            while self.internal_stream_requests.qsize() > 0:                
-                stream_requesters.append(self.internal_stream_requests.get())
-                if not self.check(stream_requesters[-1].camera_name):
-                    self.signal_queue.put(ServerRequest(request_type='stream', camera_name=stream_requesters[-1].camera_name))
-                log.debug('Get stream requester: %s', stream_requesters[-1].camera_name)
-
-            while self.external_stream_responses.qsize() > 0:
-                stream_responses.append(self.external_stream_responses.get())
-                log.debug('Get stream response: %s', stream_responses[-1].camera_name)
-
-            for requester in stream_requesters:
-                for response in stream_responses:
-                    if requester.camera_name == response.camera_name:
-                        log.debug('Making stream channel for camera %s', requester.camera_name)
-                        self.stream_channel(requester, response)
-                        stream_requesters.remove(requester)
-                        stream_responses.remove(response)
-
-            if (time.perf_counter() - time_created) > self.stream_request_timeout:
-                log.debug('Stream request timeout')
-                for requester in stream_requesters:
-                    requester.connection.close()
-                    stream_requesters.remove(requester)
-                    log.debug('requester removed')
-                for response in stream_responses:
-                    response.connection.close()
-                    stream_responses.remove(response)
-                    log.debug('response removed')
-                break
-        log.debug('Thread ended')
-
-    @new_thread
-    def stream_channel(self, requester, response):
-        log = logging.getLogger(requester.camera_name)
-        log.debug('Channel established')
-        while response.connection:
-            data = response.connection.recv(1048000)
-            if data == b"":
-                log.debug('Connection to camera lost')
-                break
-            try:
-                requester.connection.send(data)
-            except:
-                log.debug('Connection to consumer lost')
-                break
-        requester.connection.close()
-        response.connection.close()
-        log.debug('Channel closed')
-
-    def check(self,name):
-        for th in threading.enumerate():
-            if th.name == 'stream_channel' + name:
-                return True
-        return False
-
-
-
-    """
-    @check_thread
-    def restream_video(self):
-        log = logging.getLogger('Restream Video')
-        log.info('Thread started')
-        time_created = time.perf_counter()
         while True:
             while self.internal_stream_requests.qsize() > 0:
                 log.info('Get requester')
-                stream_request = self.internal_stream_requests.get()                
-                self.stream_request[stream_request.camera_name][0].put(stream_request)
-                self.stream_channel(stream_request.camera_name)               
-                
-            while self.external_stream_responses.qsize() > 0:
-                log.info('Get response')
-                stream_response = self.external_stream_responses.get()
-                self.stream_request[stream_response.camera_name][1].put(stream_response)
+                stream_requester = self.internal_stream_requests.get()                
 
-            if (time.perf_counter() - time_created) > self.stream_request_timeout:
-                break
-
-    @check_named_thread
-    def stream_channel(self, camera_name):
-        self.signal_queue.put(ServerRequest(request_type='stream', camera_name=camera_name)) 
-        requesters_list = []
-        log = logging.getLogger(str(camera_name))
-        log.info('Channel started')
-        try:
-            response = self.stream_request[camera_name][1].get(timeout=self.stream_request_timeout)
-        except:
-            log.warning('No stream response')
-            return None
-
-        while response.connection:
-            log.debug('GET NEW REQUESTERS')
-            while self.stream_request[camera_name][0].qsize() > 0:
-                log.info('Get new requester, REQUESTER LIST LEN: %s', len(requesters_list))
-                requesters_list.append(self.stream_request[camera_name][0].get())
-                log.info('Get new requester, REQUESTER ADDED: %s', len(requesters_list))
-            log.debug('RECEIVING FRAME')
-            data = response.connection.recv(1048000)
-            log.debug('FRAME RECEIVED')
-            if data == b"":
-                log.debug('Connection to camera lost')
-                break
-            if requesters_list:
-                for requester in requesters_list:
-                    try:
-                        requester.connection.send(data)
-                    except:
-                        log.debug('Connection to consumer lost')
-                        requester.connection.close()
-                        requesters_list.remove(requester)
-                    else:
-                        log.debug('FRAME SENDED')
-            else:
-                log.info('No requesters')
-                break
-        log.debug('STREAM ENDED')
-        if requesters_list:
-            for requester in requesters_list:
-                requester.connection.close()
-        response.connection.close()
-        log.debug('Channel closed')
+                if not stream_requester.camera_name in self.stream_channels:
+                    log.debug('CREATE stream channel')
+                    self.stream_channels[stream_requester.camera_name] = StreamChannel()
+                    
+                current_stream_channel = self.stream_channels[stream_requester.camera_name]
+                                
+                if current_stream_channel.consumer_number() == 0:
+                    log.debug('Killing thread %s', stream_requester.camera_name)
+                    current_stream_channel.kill_thread()
+                    log.debug('Ruuning thread %s', stream_requester.camera_name)
+                    current_stream_channel.run_thread(stream_requester.camera_name)
+                    log.debug('Send stream request')
+                    self.signal_queue.put(ServerRequest(request_type='stream', camera_name=stream_requester.camera_name)) 
             
+                current_stream_channel.add_consumer()
+                log.debug('Put requester to queue')
+                current_stream_channel.consumer_queue.put(stream_requester)
 
-
-
+            while self.external_stream_responses.qsize() > 0:
+                log.debug('Get response')
+                stream_source = self.external_stream_responses.get()
+                current_stream_channel = self.stream_channels[stream_source.camera_name]                                   
+                current_stream_channel.stream_source = stream_source
+                current_stream_channel.source_connected()
+                    
+  
 
 if __name__ == "__main__":
     external_addr = os.environ.get('EXTERNAL_HOST', '127.0.0.1')

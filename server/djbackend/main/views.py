@@ -1,11 +1,9 @@
 from django.shortcuts import render
-from django.http import StreamingHttpResponse
 from django.views import generic
 from django.core.cache import cache
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from .models import ArchiveVideo, CachedVideo, Camera
-from .utils import gen
 from datetime import timedelta, datetime
 from .tasks import update_cache
 import os
@@ -35,11 +33,6 @@ def stream_view(request):
             'cam_list': json.dumps(simplified_camera_list),
         }        
     )
-
-#@login_required
-#def camera_source_view(request):
-#    return StreamingHttpResponse(gen(),
-#                                 content_type='multipart/x-mixed-replace; boundary=frame')
 
 @login_required
 def archive_view(request):

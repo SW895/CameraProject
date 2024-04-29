@@ -493,7 +493,6 @@ class CameraClient:
         empty_frame_counter = 0
         detection = False
         self.get_model()
-        counter = 0
         while cap.isOpened():
 
             success, frame = cap.read()
@@ -516,9 +515,6 @@ class CameraClient:
                 for camera in self.camera_list: # FOR DEBUG PURPOSE
                     if camera.frame_queue.qsize() == 0:                
                         camera.frame_queue.put(annotated_frame)
-                        message = self.convert_frame(frame)
-                        counter = save_frame(message, counter)
-
             
                 cv2.imshow("YOLOv8 Inference", annotated_frame)
 
@@ -538,13 +534,6 @@ class CameraClient:
                 break    
         cap.release()
         cv2.destroyAllWindows()
-
-
-def save_frame(frame, counter):
-    if counter == 0:
-        with open('z.txt', 'wb') as file:
-            file.write(frame)
-    return counter
 
 if __name__ == '__main__':
     config = configparser.ConfigParser()
