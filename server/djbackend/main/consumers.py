@@ -44,19 +44,17 @@ class VideoStreamConsumer(WebsocketConsumer):
 
     @new_thread
     def connect(self):
-        self.camera_name = str(self.scope["url_route"]["kwargs"]["camera_name"])
+        self.camera_name = self.scope["url_route"]["kwargs"]["camera_name"]
         if not(self.camera_name in manager.stream_sources) and manager.is_valid():
             manager.stream_sources_invalid()
 
         manager.consumer_queue.put(self)
         manager.wait_validation()
-        manager.stream_sources[self.camera_name].add_consumer()
-        self.videostream()       
+        self.videostream()
         self.accept()
 
     @new_thread
     def disconnect(self, close_code):
-        manager.stream_sources[self.camera_name].remove_consumer()
         self.pause_stream()
         self.end_consumer()    
         self.close()

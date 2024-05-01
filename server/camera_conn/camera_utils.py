@@ -30,7 +30,7 @@ def new_thread(target_function):
 
     def inner(*args, **kwargs):
 
-        thread = threading.Thread(target=target_function, args=args)
+        thread = threading.Thread(target=target_function, args=args, kwargs=kwargs)
         thread.start()
 
     return inner

@@ -5,7 +5,6 @@ import queue
 import threading
 import struct
 
-
 def new_thread(target_function):
 
     def inner(*args, **kwargs):
@@ -18,7 +17,7 @@ def new_thread(target_function):
 
 class VideoStreamSource:
     
-    def __init__(self):
+    def __init__(self, camera_name):
         self.consumer_queue = queue.Queue()
         self._mutex = threading.Lock()
         self._thread_working = threading.Event()
@@ -26,6 +25,10 @@ class VideoStreamSource:
         self._thread_dead = threading.Event()
         self._thread_dead.set()
         self._consumer_number = 0
+        self.camera_name = camera_name
+        self.payload_size = struct.calcsize("Q")
+        self.stream_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.stream_socket.settimeout(5.0)
 
     def thread_dead(self):
         self._thread_dead.set()   
@@ -37,10 +40,10 @@ class VideoStreamSource:
         self._thread_working.clear()
         self._thread_dead.wait()
     
-    def run_thread(self, camera_name):
+    def run_thread(self):
         self._thread_working.set()
         self._thread_dead.clear()
-        self.stream_source(camera_name)
+        self.stream_source()
     
     def add_consumer(self):
         with self._mutex:
@@ -51,81 +54,71 @@ class VideoStreamSource:
             self._consumer_number -= 1
 
     def consumer_number(self):
-        with self._mutex:
-            return self._consumer_number
+        return self._consumer_number
     
-    def get_connection(self, camera_name):
-        stream_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        stream_socket.settimeout(1)
-        
+    def get_connection(self):
+        self.stream_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.stream_socket.settimeout(5.0)
         try:
-            stream_socket.connect((os.environ.get('INTERNAL_HOST', '127.0.0.1'), int(os.environ.get('INTERNAL_PORT', 20900))))
+            self.stream_socket.connect((os.environ.get('INTERNAL_HOST', '127.0.0.1'), int(os.environ.get('INTERNAL_PORT', 20900))))
         except:
             self.thread_dead()
-            stream_socket.close()
-            return None
-        
-        msg = {'request_type':'stream_request', 'camera_name':camera_name}
-        stream_socket.send(json.dumps(msg).encode())
-        return stream_socket
+            self.stream_socket.close()
+            return False
+        msg = {'request_type':'stream_request', 'camera_name':self.camera_name}
+        self.stream_socket.send(json.dumps(msg).encode())
+        return True
 
     @new_thread
-    def stream_source(self, camera_name):
-        payload_size = struct.calcsize("Q")
+    def stream_source(self):
         data = b"" 
         frame = b""
         consumer_list = []
-        stream_socket = self.get_connection(camera_name)
+        connected = self.get_connection()
 
-        while self.thread_working() and stream_socket and (self.consumer_number() > 0):
-
-            while self.consumer_queue.qsize() > 0:
-                consumer_list.append(self.consumer_queue.get())
-            if consumer_list:
-                stream_socket, frame, data = self.recv_package(stream_socket,
-                                                                data, 
-                                                                payload_size,)
-                if frame:
-                    for consumer in consumer_list:
-                        if consumer.frame.qsize() == 0:
-                            consumer.frame.put(frame)
-                        if consumer.is_disconnected():
-                            consumer_list.remove(consumer)
-                else:
-                    for consumer in consumer_list:
-                        consumer.disconnect('1') #????????
-                    break
-
-        stream_socket.close()
-        self.thread_dead()
-
-    def recv_package(self, connection, data, payload_size):
-        frame_data = b""
-        try:
-            packet = connection.recv(4096)
-        except:
-            return connection, None, None
-        else:   
-            if packet != b"":
-                data += packet   
-                packed_msg_size = data[:payload_size]
-                data = data[payload_size:]
-                msg_size = struct.unpack("Q",packed_msg_size)[0]
-
-                while len(data) < msg_size:
-                    try:
-                        packet = connection.recv(1048576)
-                    except:
-                        return connection, None, None
+        if connected:
+            while self.thread_working() and (self.consumer_number() > 0):
+                while self.consumer_queue.qsize() > 0:
+                    consumer_list.append(self.consumer_queue.get())
+                if consumer_list:
+                    frame, data = self.recv_package(data)
+                    if frame:
+                        for consumer in consumer_list:
+                            if consumer.frame.qsize() == 0:
+                                consumer.frame.put(frame)
+                            if consumer.is_disconnected():
+                                consumer_list.remove(consumer)
+                                self.remove_consumer()
                     else:
-                        if not self.thread_working() or packet == b"":
-                            break
-                        data += packet
+                        break
+            self.stream_socket.close()
+        
+        for consumer in consumer_list:
+            consumer.disconnect('1') #????????
+            self.remove_consumer()
+        self.thread_dead()
+   
+    def recv_package(self, data):
+        packet = self.stream_socket.recv(4096)
+        if packet != b"":
+            data += packet
+            packed_msg_size = data[:self.payload_size]
+            data = data[self.payload_size:]
+            msg_size = struct.unpack("Q",packed_msg_size)[0]
 
-                frame_data = data[:msg_size]
-                data  = data[msg_size:]
-            
-        return connection, frame_data, data
+            while len(data) < msg_size:
+                packet = self.stream_socket.recv(1048576)
+                if (not self.thread_working()) or packet == b"":
+                    return None, None
+                if msg_size > 100000:
+                    return packet, b""
+                data += packet
+
+            frame_data = data[:msg_size]
+            data  = data[msg_size:]
+            return frame_data, data
+        
+        return None, None
 
 
 class VideoStreamManager:
@@ -154,8 +147,7 @@ class VideoStreamManager:
         self.stream_sources.clear()
 
         for source in stream_sources:
-            self.stream_sources[source.camera_name] = VideoStreamSource()
-
+            self.stream_sources[source.camera_name] = VideoStreamSource(source.camera_name)
         self.stream_sources_valid()
     
     @new_thread
@@ -167,9 +159,9 @@ class VideoStreamManager:
                 self.wait_validation()
             
             current_stream_source = self.stream_sources[consumer.camera_name]            
+            current_stream_source.add_consumer()
+            current_stream_source.consumer_queue.put(consumer)
 
             if current_stream_source.consumer_number() <= 1:
                 current_stream_source.kill_thread()
-                current_stream_source.run_thread(consumer.camera_name)
-            
-            current_stream_source.consumer_queue.put(consumer)
+                current_stream_source.run_thread()

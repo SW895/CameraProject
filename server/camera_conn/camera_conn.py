@@ -1,13 +1,11 @@
 import socket
 import queue
 import os
-import struct
 import json
 import psycopg
 import datetime
 import logging
 import pytz
-import time
 import threading
 from pathlib import Path
 from psycopg import sql
@@ -21,27 +19,7 @@ logging.basicConfig(level=logging.DEBUG,
                     datefmt="%Y-%m-%dT%H:%M:%S",
                     )
 
-"""
-def check_named_thread(target_function):
 
-    def inner(*args, **kwargs):
-        thread_running = False
-        camera_name = str(args[1])
-        for th in threading.enumerate():
-            if th.name == target_function.__name__ + camera_name:
-                thread_running = True
-                break
-
-        if not thread_running :
-            logging.debug('Starting thread %s', target_function.__name__ + camera_name)                
-            thread = threading.Thread(target=target_function, args=args, name=target_function.__name__ + camera_name)
-            thread.start()               
-        else:
-            logging.debug('Thread %s already running', target_function.__name__ + camera_name)  
-
-        return None
-    return inner
-"""
 class ServerRequest:
 
     def __init__(self, request_type, 
@@ -53,8 +31,7 @@ class ServerRequest:
                  db_record=None,
                  camera_name=None,
                  connection=None,
-                 address=None,
-                 lifetime=10):
+                 address=None,):
         
         self.request_type = request_type
         self.video_name = video_name
@@ -66,11 +43,27 @@ class ServerRequest:
         self.camera_name = str(camera_name)
         self.connection = connection
         self.address = address
-        self.lifetime = lifetime
+    
+    def __eq__(self, other):
+        SameObject = isinstance(other, self.__class__)
+        if SameObject:
+            return True
+        if (self.request_type == other.request_type) and \
+            (self.video_name == other.video_name) and \
+            (self.video_size == other.video_size) and \
+            (self.username == other.username) and \
+            (self.email == other.email) and \
+            (self.request_result == other.request_result) and \
+            (self.db_record == other.db_record) and \
+            (self.camera_name == other.camera_name):
+            return True
+        else:
+            return False
+
 
 class StreamChannel:
 
-    def __init__(self):
+    def __init__(self ,camera_name):
         self.consumer_queue = queue.Queue()
         self._mutex = threading.Lock()
         self._thread_working = threading.Event()
@@ -79,18 +72,9 @@ class StreamChannel:
         self._thread_dead.set()
         self._source_connected = threading.Event()
         self._consumer_number = 0
-        self._has_consumers = threading.Event()
         self.stream_source = None
-        self.source_connection_timeout = 1000000
-    
-    def any_consumers(self):
-        return self._has_consumers.is_set()
-
-    def no_consumers(self):
-        self._has_consumers.clear()
-
-    def has_consumers(self):
-        self._has_consumers.set()
+        self.source_connection_timeout = 5
+        self.camera_name = camera_name
 
     def thread_dead(self):
         self._thread_dead.set()
@@ -102,11 +86,10 @@ class StreamChannel:
         self._thread_working.clear()
         self._thread_dead.wait()
 
-    def run_thread(self, camera_name):
+    def run_thread(self):
         self._thread_working.set()
         self._thread_dead.clear()        
-        
-        self.stream_channel(camera_name)
+        self.stream_channel()
     
     def wait_source_connection(self):
         return self._source_connected.wait(timeout=self.source_connection_timeout)
@@ -117,49 +100,36 @@ class StreamChannel:
     def source_disconnected(self):
         self._source_connected.clear()
 
-    #def stream_source_exist(self):
-        #return self._source_connected.is_set()
-
     def add_consumer(self):
         with self._mutex:
             self._consumer_number += 1
-            if self._consumer_number == 1:
-                self.has_consumers()
     
     def remove_consumer(self):
         with self._mutex:
             self._consumer_number -= 1
-            if self._consumer_number == 0:
-                self.no_consumers()
 
     def consumer_number(self):
-        with self._mutex:
-            return self._consumer_number
+        return self._consumer_number
 
     @new_thread
-    def stream_channel(self, camera_name):
-        log = logging.getLogger(str(camera_name))
+    def stream_channel(self):
+        log = logging.getLogger(str(self.camera_name))
         log.debug('Thread started')
         consumer_list = []
 
         if self.wait_source_connection():
-
-            while self.thread_working() and (self.consumer_number() > 0):
-            
+            while self.thread_working() and (self.consumer_number() > 0):            
                 while self.consumer_queue.qsize() > 0:
                     log.info('Get new consumer')
-                    consumer_list.append(self.consumer_queue.get())
-            
+                    consumer_list.append(self.consumer_queue.get())            
                 if consumer_list:
                     data = self.stream_source.connection.recv(1048576)
-
                     if data == b"":
                         log.debug('Connection to camera lost')
                         break
-
                     for consumer in consumer_list:
                         try:
-                            consumer.connection.send(data)
+                            consumer.connection.send(data)                            
                         except:
                             log.debug('Connection to consumer lost')
                             consumer.connection.close()
@@ -168,15 +138,15 @@ class StreamChannel:
 
         if consumer_list:
             for consumer in consumer_list:
+                log.debug('CLOSE CONNECTION TO CONSUMER')
                 consumer.connection.close()
+                self.remove_consumer()
         
         self.stream_source.connection.close()
         self.stream_source = None
         self.source_disconnected()
-        log.debug('Stream channel closed')
-        self.thread_dead()
-            
-            
+        log.debug('Stream channel closed %s', self.consumer_number())
+        self.thread_dead()         
 
 
 class EchoServer:
@@ -436,8 +406,7 @@ class EchoServer:
         log = logging.getLogger('Save camera to DB')
         log.info('Connection to DB')
         db_conn, cur = connect_to_db(self.DEBUG)
-        self.stream_request = {}
-        #self.stream_request[stream_request.camera_name] = (queue.Queue(), queue.Queue(maxsize=1))
+        self.stream_channels.clear()
         if db_conn:
             log.info('Successfully connected to db')
             while self.camera_records_queue.qsize() > 0:
@@ -452,7 +421,7 @@ class EchoServer:
                         log.info('Camera %s successfully activated', record['camera_name'])
                     except:
                         log.error('Corrupted camera record')
-                self.stream_request[record['camera_name']] = (queue.Queue(), queue.Queue(maxsize=1))
+                self.stream_channels[record['camera_name']] = StreamChannel(record['camera_name'])
                 db_conn.commit()
             cur.close()
             db_conn.close()    
@@ -613,24 +582,19 @@ class EchoServer:
             while self.internal_stream_requests.qsize() > 0:
                 log.info('Get requester')
                 stream_requester = self.internal_stream_requests.get()                
-
-                if not stream_requester.camera_name in self.stream_channels:
-                    log.debug('CREATE stream channel')
-                    self.stream_channels[stream_requester.camera_name] = StreamChannel()
-                    
+     
                 current_stream_channel = self.stream_channels[stream_requester.camera_name]
-                                
-                if current_stream_channel.consumer_number() == 0:
+                current_stream_channel.add_consumer()
+                log.debug('Put requester to queue')
+                current_stream_channel.consumer_queue.put(stream_requester)     
+
+                if current_stream_channel.consumer_number() <= 1:
                     log.debug('Killing thread %s', stream_requester.camera_name)
                     current_stream_channel.kill_thread()
                     log.debug('Ruuning thread %s', stream_requester.camera_name)
-                    current_stream_channel.run_thread(stream_requester.camera_name)
+                    current_stream_channel.run_thread()
                     log.debug('Send stream request')
                     self.signal_queue.put(ServerRequest(request_type='stream', camera_name=stream_requester.camera_name)) 
-            
-                current_stream_channel.add_consumer()
-                log.debug('Put requester to queue')
-                current_stream_channel.consumer_queue.put(stream_requester)
 
             while self.external_stream_responses.qsize() > 0:
                 log.debug('Get response')

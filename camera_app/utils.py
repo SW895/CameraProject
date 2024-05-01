@@ -21,12 +21,3 @@ def check_thread(target_function):
         return None
     return inner
 
-
-def new_thread(target_function):
-
-    def inner(*args, **kwargs):
-
-        thread = threading.Thread(target=target_function, args=args)
-        thread.start()
-
-    return inner
