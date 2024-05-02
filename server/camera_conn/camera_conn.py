@@ -595,21 +595,21 @@ class EchoServer:
         while True:
             while self.internal_stream_requests.qsize() > 0:
                 log.info('Get requester')
-                stream_requester = self.internal_stream_requests.get()                
-     
-                current_stream_channel = self.stream_channels[stream_requester.camera_name]
-                
+                stream_requester = self.internal_stream_requests.get()     
+                current_stream_channel = self.stream_channels[stream_requester.camera_name]                
                 log.debug('Put requester to queue')
-                current_stream_channel.consumer_queue.put(stream_requester)
-                current_stream_channel.add_consumer()
+                current_stream_channel.consumer_queue.put(stream_requester)                
 
-                if current_stream_channel.consumer_number() <= 1:
+                if current_stream_channel.consumer_number() == 0:
                     log.debug('Killing thread %s', stream_requester.camera_name)
                     current_stream_channel.kill_thread()
                     log.debug('Ruuning thread %s', stream_requester.camera_name)
+                    current_stream_channel.add_consumer()
                     current_stream_channel.run_thread()
                     log.debug('Send stream request')
-                    self.signal_queue.put(ServerRequest(request_type='stream', camera_name=stream_requester.camera_name)) 
+                    self.signal_queue.put(ServerRequest(request_type='stream', camera_name=stream_requester.camera_name))
+                else:
+                    current_stream_channel.add_consumer()
 
             while self.external_stream_responses.qsize() > 0:
                 log.debug('Get response')

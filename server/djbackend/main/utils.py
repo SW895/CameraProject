@@ -166,12 +166,13 @@ class VideoStreamManager:
             consumer = self.consumer_queue.get()
             if not self.is_valid():
                 self.validate_stream_sources()
-                self.wait_validation()
-            
-            current_stream_source = self.stream_sources[consumer.camera_name]            
-            current_stream_source.add_consumer()
+                self.wait_validation()            
+            current_stream_source = self.stream_sources[consumer.camera_name]
             current_stream_source.consumer_queue.put(consumer)
 
-            if current_stream_source.consumer_number() <= 1:
+            if current_stream_source.consumer_number() == 0:
                 current_stream_source.kill_thread()
+                current_stream_source.add_consumer()
                 current_stream_source.run_thread()
+            else:
+                current_stream_source.add_consumer()
