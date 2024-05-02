@@ -475,8 +475,8 @@ class CameraClient:
         # { 'camera_name(serial_number)':'camera_address'}
         # {'123456789':'rtsp://username:password@192.168.1.64/1'}
         #TODO REFACTORING
-        #camera_list = [(0, 'aaa'),(0, 'bbb'),(0, 'ccc'),(0, 'ddd'),(0, 'eee'),(0, 'fff'),(0, 'ggg'),(0, 'hhh'),(0, 'iii'),(0, 'kkk'),(0, 'lll'),(0, 'mmm')]
-        camera_list = [(0,'111'), (0, '222')]
+        camera_list = [(0, 'aaa'),(0, 'bbb'),(0, 'ccc'),(0, 'ddd'),(0, 'eee'),(0, 'fff'),(0, 'ggg'),(0, 'hhh'),(0, 'iii'),(0, 'kkk'),(0, 'lll'),(0, 'mmm')]
+        #camera_list = [(0,'111'), (0, '222')]
         for camera in camera_list:
             self.camera_sources[camera[1]] = CameraSource(camera[0], camera[1])
 

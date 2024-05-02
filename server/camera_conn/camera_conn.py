@@ -182,6 +182,7 @@ class EchoServer:
         self.video_save_path = '/home/app/web/mediafiles/'
         self.camera_records_queue = queue.Queue()
         self.stream_channels = {}
+        self.stream_requests = threading.Condition()
 
 
     def __getstate__(self):
@@ -582,10 +583,14 @@ class EchoServer:
 
     def ehandler_stream_source(self, request):
         self.external_stream_responses.put(request)
+        with self.stream_requests:
+            self.stream_requests.notify()        
     
     def ihandler_stream_request(self, request):
         self.internal_stream_requests.put(request)
         self.videostream_manager()
+        with self.stream_requests:
+            self.stream_requests.notify()       
 
     @check_thread
     def videostream_manager(self):
@@ -593,10 +598,14 @@ class EchoServer:
         log.debug('Managger started')
 
         while True:
+            if self.internal_stream_requests.qsize() == 0 and self.external_stream_responses.qsize() == 0:                
+                with self.stream_requests:
+                    self.stream_requests.wait()
+
             while self.internal_stream_requests.qsize() > 0:
                 log.info('Get requester')
                 stream_requester = self.internal_stream_requests.get()     
-                current_stream_channel = self.stream_channels[stream_requester.camera_name]                
+                current_stream_channel = self.stream_channels[stream_requester.camera_name]
                 log.debug('Put requester to queue')
                 current_stream_channel.consumer_queue.put(stream_requester)                
 
