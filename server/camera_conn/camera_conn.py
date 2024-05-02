@@ -111,6 +111,10 @@ class StreamChannel:
     def consumer_number(self):
         return self._consumer_number
 
+    def void_consumers(self):
+        with self._mutex:
+            self._consumer_number = 0
+
     @new_thread
     def stream_channel(self):
         log = logging.getLogger(str(self.camera_name))
@@ -121,7 +125,7 @@ class StreamChannel:
             while self.thread_working() and (self.consumer_number() > 0):            
                 while self.consumer_queue.qsize() > 0:
                     log.info('Get new consumer')
-                    consumer_list.append(self.consumer_queue.get())            
+                    consumer_list.append(self.consumer_queue.get())       
                 if consumer_list:
                     data = self.stream_source.connection.recv(1048576)
                     if data == b"":
@@ -135,16 +139,15 @@ class StreamChannel:
                             consumer.connection.close()
                             consumer_list.remove(consumer)
                             self.remove_consumer()
+            self.stream_source.connection.close()
 
         if consumer_list:
             for consumer in consumer_list:
                 log.debug('CLOSE CONNECTION TO CONSUMER')
                 consumer.connection.close()
-                self.remove_consumer()
-        
-        self.stream_source.connection.close()
         self.stream_source = None
         self.source_disconnected()
+        self.void_consumers()
         log.debug('Stream channel closed %s', self.consumer_number())
         self.thread_dead()         
 
@@ -408,19 +411,30 @@ class EchoServer:
         db_conn, cur = connect_to_db(self.DEBUG)
         self.stream_channels.clear()
         if db_conn:
+
             log.info('Successfully connected to db')
+            try:
+                cur.execute("UPDATE main_camera SET is_active=False WHERE is_active=True;")
+            except:
+                log.error('No records')
+            else:
+                log.debug('All cameras set to is_active=False')
+                db_conn.commit()
+
             while self.camera_records_queue.qsize() > 0:
                 record = self.camera_records_queue.get()
                 log.info('Got new record')
                 try:
                     cur.execute("INSERT INTO main_camera(camera_name, is_active) VALUES (%s, True);", (record['camera_name'],))
                     log.info('Camera %s added', record['camera_name'])                    
-                except:
+                except (Exception, psycopg.Error) as error:
+                    db_conn.commit()
+                    log.error('Failed to create new record %s: %s', record['camera_name'], error)
                     try:
-                        cur.execute("UPDATE main_camera SET is_active=True WHERE camera_name=(%s);",(record['camera_name'],))
+                        cur.execute("UPDATE main_camera SET is_active=True WHERE camera_name=%s;",(record['camera_name'],))
                         log.info('Camera %s successfully activated', record['camera_name'])
-                    except:
-                        log.error('Corrupted camera record')
+                    except (Exception, psycopg.Error) as error:
+                        log.error('Corrupted camera record %s: %s', record['camera_name'], error)
                 self.stream_channels[record['camera_name']] = StreamChannel(record['camera_name'])
                 db_conn.commit()
             cur.close()
@@ -584,9 +598,10 @@ class EchoServer:
                 stream_requester = self.internal_stream_requests.get()                
      
                 current_stream_channel = self.stream_channels[stream_requester.camera_name]
-                current_stream_channel.add_consumer()
+                
                 log.debug('Put requester to queue')
-                current_stream_channel.consumer_queue.put(stream_requester)     
+                current_stream_channel.consumer_queue.put(stream_requester)
+                current_stream_channel.add_consumer()
 
                 if current_stream_channel.consumer_number() <= 1:
                     log.debug('Killing thread %s', stream_requester.camera_name)
@@ -602,8 +617,7 @@ class EchoServer:
                 current_stream_channel = self.stream_channels[stream_source.camera_name]                                   
                 current_stream_channel.stream_source = stream_source
                 current_stream_channel.source_connected()
-                    
-  
+
 
 if __name__ == "__main__":
     external_addr = os.environ.get('EXTERNAL_HOST', '127.0.0.1')

@@ -56,6 +56,10 @@ class VideoStreamSource:
     def consumer_number(self):
         return self._consumer_number
     
+    def void_consumers(self):
+        with self._mutex:
+            self._consumer_number = 0
+    
     def get_connection(self):
         self.stream_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.stream_socket.settimeout(5.0)
@@ -95,11 +99,14 @@ class VideoStreamSource:
         
         for consumer in consumer_list:
             consumer.disconnect('1') #????????
-            self.remove_consumer()
+        self.void_consumers()
         self.thread_dead()
    
     def recv_package(self, data):
-        packet = self.stream_socket.recv(4096)
+        try:
+            packet = self.stream_socket.recv(4096)
+        except:
+            return None, None
         if packet != b"":
             data += packet
             packed_msg_size = data[:self.payload_size]
@@ -107,7 +114,10 @@ class VideoStreamSource:
             msg_size = struct.unpack("Q",packed_msg_size)[0]
 
             while len(data) < msg_size:
-                packet = self.stream_socket.recv(1048576)
+                try:
+                    packet = self.stream_socket.recv(1048576)
+                except:
+                    return None, None
                 if (not self.thread_working()) or packet == b"":
                     return None, None
                 if msg_size > 100000:
