@@ -1,16 +1,16 @@
+import os
+import socket
+import json
+import pytz
+from django.utils.timezone import localtime
+from datetime import timedelta, datetime
 from django.shortcuts import render
 from django.views import generic
 from django.core.cache import cache
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
 from .models import ArchiveVideo, CachedVideo, Camera
-from datetime import timedelta, datetime
 from .tasks import update_cache
-import os
-import socket
-import json
-import pytz
-from django.utils.timezone import localtime
 
 
 def main_view(request):
@@ -19,7 +19,7 @@ def main_view(request):
         'main/main_page.html',
     )
 
-#@login_required
+@login_required
 def stream_view(request):
     camera_list = Camera.objects.filter(is_active=True)
     simplified_camera_list = []
@@ -65,11 +65,10 @@ class VideoDetailView(LoginRequiredMixin, generic.DetailView):
     model = ArchiveVideo
     template_name = 'main/archivevideo_detail.html'
 
-    def get_context_data(self, *args, **kwargs):        
+    def get_context_data(self, **kwargs):        
         timezone = pytz.timezone('Europe/Moscow')
         timeout = int(os.environ.get('CACHE_TIMEOUT', '60'))
-
-        context = super(VideoDetailView, self).get_context_data(*args, **kwargs)
+        context = super(VideoDetailView, self).get_context_data(**kwargs)
         video = ArchiveVideo.objects.get(pk=self.kwargs['pk'])
         video_name = localtime(video.date_created)
         video_name = video_name.strftime("%d_%m_%YT%H_%M_%S")
@@ -78,8 +77,7 @@ class VideoDetailView(LoginRequiredMixin, generic.DetailView):
             update_cache(video_name, timeout)
             return context
         else:
-            sock = self.connect_to_server()
-            if self.request_video(video_name, sock, timeout):
+            if self.request_video(video_name, timeout):
                 context['video_name'] = video_name
                 cache.add(video_name, True, timeout=timeout)
                 record = CachedVideo(name=video_name,
@@ -90,12 +88,13 @@ class VideoDetailView(LoginRequiredMixin, generic.DetailView):
                 context['video_name'] = None
             return context
 
-    def request_video(self, video_name, sock, timeout=60):
+    def request_video(self, video_name, timeout=60):
+        sock = self.connect_to_server()
         msg = {'request_type':'video_request', 'video_name':video_name}
         sock.send(json.dumps(msg).encode())
         reply = sock.recv(1024)
         sock.close()
-       
+
         if reply.decode() == 'success':
             return True
         else:

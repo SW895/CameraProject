@@ -612,7 +612,7 @@ class EchoServer:
                 if current_stream_channel.consumer_number() == 0:
                     log.debug('Killing thread %s', stream_requester.camera_name)
                     current_stream_channel.kill_thread()
-                    log.debug('Ruuning thread %s', stream_requester.camera_name)
+                    log.debug('Runing thread %s', stream_requester.camera_name)
                     current_stream_channel.add_consumer()
                     current_stream_channel.run_thread()
                     log.debug('Send stream request')

@@ -1,5 +1,5 @@
 from django.test import TestCase
-from ..models import ArchiveVideo, CachedVideo
+from ..models import ArchiveVideo, CachedVideo, Camera
 import datetime
 import pytz
 
@@ -49,3 +49,19 @@ class TestCachedVideo(TestCase):
         cached_video = CachedVideo.objects.get(id=self.obj_id)
         max_length = cached_video._meta.get_field('name').max_length
         self.assertEqual(max_length, 100)
+
+
+class TestCamera(TestCase):
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.obj_id = Camera.objects.create(camera_name='test').pk
+
+    def test_is_active_false_by_default(self):
+        camera = Camera.objects.get(id=self.obj_id)
+        self.assertFalse(camera.is_active)
+    
+    def test_string_representation(self):
+        camera = Camera.objects.get(id=self.obj_id)
+        expected_name = 'test'
+        self.assertEqual(str(camera), expected_name)

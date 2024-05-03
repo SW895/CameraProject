@@ -70,5 +70,6 @@ class VideoStreamConsumer(WebsocketConsumer):
             self.play_stream()
             self.videostream()
 
+
 manager = VideoStreamManager()
 manager.run_manager()
