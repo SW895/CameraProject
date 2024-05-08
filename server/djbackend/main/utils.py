@@ -5,12 +5,14 @@ import queue
 import threading
 import struct
 
+
 def new_thread(target_function):
 
     def inner(*args, **kwargs):
 
         thread = threading.Thread(target=target_function, args=args, kwargs=kwargs)
         thread.start()
+        return thread
 
     return inner
 
@@ -137,6 +139,16 @@ class VideoStreamManager:
         self.stream_sources = {}
         self.consumer_queue = queue.Queue()
         self._valid = threading.Event()
+        self._end_manager = threading.Event()
+
+    def run_manager(self):
+        self._end_manager.clear()
+    
+    def kill_manager(self):
+        self._end_manager.set()
+    
+    def manager_working(self):
+        return not self._end_manager.is_set()
     
     def is_valid(self):
         return self._valid.is_set()
@@ -162,11 +174,13 @@ class VideoStreamManager:
     
     @new_thread
     def run_manager(self):
-        while True:
+        while self.manager_working():
             consumer = self.consumer_queue.get()
-            if not self.is_valid():
+            if not(consumer.camera_name in self.stream_sources) and self.is_valid():
+                self.stream_sources_invalid()
                 self.validate_stream_sources()
-                self.wait_validation()            
+                self.wait_validation()
+                
             current_stream_source = self.stream_sources[consumer.camera_name]
             current_stream_source.consumer_queue.put(consumer)
 
