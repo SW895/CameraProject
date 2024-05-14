@@ -10,22 +10,40 @@ from unittest.mock import Mock, patch
 from types import FunctionType
 from django.contrib.auth import get_user_model
 from pathlib import Path
-from ..models import ArchiveVideo
-
+from ..models import ArchiveVideo, Camera
 
 base_dir = Path(__file__).resolve().parent.parent.parent.parent
 sys.path.insert(1, str(base_dir) + '/camera_conn/')
-from camera_conn import EchoServer, SocketConn, ServerRequest
+from camera_conn import EchoServer, StreamChannel, ServerRequest
 
-
+test_adress = '127.0.0.1'
+test_port_1 = 20900
+test_port_2 = 10900
 timezone = pytz.timezone('Europe/Moscow')
 User = get_user_model()
+
+
+class TestListHandlers(TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
+
+    @classmethod
+    def tearDownClass(cls):
+        pass
+
+    def test_proper_handler_list(self):
+        actual = self.test_object.list_handlers()
+        expected = 'External request types:\nsignal\nnew_record\nvideo_response\nuser_aprove_response\nstream_source\nInternal request types:\naprove_user_request\nvideo_request\nstream_request'
+        self.assertEqual(actual, expected)
+
 
 class TestGetHandlers(TestCase):
     
     @classmethod
     def setUpClass(cls):
-        cls.test_object = EchoServer('127.0.0.1', 20900, '127.0.0.1', 10900)
+        cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
         cls.test_object.DEBUG = True
     
     @classmethod
@@ -66,35 +84,32 @@ class TestRunServer(TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.test_object = EchoServer('127.0.0.1', 20900, '127.0.0.1', 10900)
+        cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
         cls.test_object.DEBUG = True
         cls.test_object.run_external_server = Mock()
         cls.test_object.run_internal_server = Mock()
     
     @classmethod
     def tearDownClass(cls):
-        cls.test_object.external_sock.shutdown(socket.SHUT_RDWR)
-        cls.test_object.external_sock.close()
-        cls.test_object.internal_sock.shutdown(socket.SHUT_RDWR)
-        cls.test_object.internal_sock.close()
+        pass
     
-    def test_create_server_threads(self):
+    @patch('socket.socket')
+    def test_create_server_threads(self, sock):
         self.test_object.run_server()
         self.test_object.run_external_server.assert_called_once()
         self.test_object.run_internal_server.assert_called_once()
 
 
 class TestRunExternalServer(TestCase):
-    
+
     @classmethod
-    def setUpClass(cls):       
-        cls.test_object = EchoServer('127.0.0.1', 20900, '127.0.0.1', 10900)
+    def setUpClass(cls):
+        cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
         cls.test_object.DEBUG = True
-        cls.adress = ('127.0.0.1', 10900)
-        cls.reply = 'accepted'        
+        cls.reply = 'accepted'
         for item in cls.test_object.external_handlers.keys():
             cls.test_object.external_handlers[item] = Mock(name=item)
-    
+
     @classmethod
     def tearDownClass(cls):
         pass
@@ -104,8 +119,8 @@ class TestRunExternalServer(TestCase):
             mock_socket.accept.return_value = (mock_socket, self.adress)
             request = {'request_type':'signal'}
             mock_socket.recv.return_value = json.dumps(request).encode()
-            self.test_object.run_external_server(mock_socket)
-            response = self.test_object.test_queue.get()
+            thread = self.test_object.run_external_server(mock_socket)
+            thread.join()
             mock_socket.send.assert_called_with(self.reply.encode())
         self.test_object.external_handlers[request['request_type']].assert_called_once()
 
@@ -114,9 +129,9 @@ class TestRunExternalServer(TestCase):
             mock_socket.accept.return_value = (mock_socket, self.adress)
             request = {'request_type':'stream_source'}
             mock_socket.recv.return_value = json.dumps(request).encode()
-            self.test_object.run_external_server(mock_socket)
-            response = self.test_object.test_queue.get()
-            mock_socket.send.assert_called_with(self.reply.encode())    
+            thread = self.test_object.run_external_server(mock_socket)
+            thread.join()
+            mock_socket.send.assert_called_with(self.reply.encode())
         self.test_object.external_handlers[request['request_type']].assert_called_once()
 
     def test_new_record_handler_called(self):
@@ -124,9 +139,9 @@ class TestRunExternalServer(TestCase):
             mock_socket.accept.return_value = (mock_socket, self.adress)
             request = {'request_type':'new_record'}
             mock_socket.recv.return_value = json.dumps(request).encode()
-            self.test_object.run_external_server(mock_socket) 
-            response = self.test_object.test_queue.get()
-            mock_socket.send.assert_called_with(self.reply.encode())              
+            thread = self.test_object.run_external_server(mock_socket)
+            thread.join()
+            mock_socket.send.assert_called_with(self.reply.encode())
         self.test_object.external_handlers[request['request_type']].assert_called_once()
 
     def test_video_response_handler_called(self):
@@ -134,9 +149,9 @@ class TestRunExternalServer(TestCase):
             mock_socket.accept.return_value = (mock_socket, self.adress)
             request = {'request_type':'video_response'}
             mock_socket.recv.return_value = json.dumps(request).encode()
-            self.test_object.run_external_server(mock_socket) 
-            response = self.test_object.test_queue.get()
-            mock_socket.send.assert_called_with(self.reply.encode())             
+            thread = self.test_object.run_external_server(mock_socket)
+            thread.join()
+            mock_socket.send.assert_called_with(self.reply.encode())
         self.test_object.external_handlers[request['request_type']].assert_called_once()
     
     def test_user_aprove_handler(self):
@@ -144,9 +159,9 @@ class TestRunExternalServer(TestCase):
             mock_socket.accept.return_value = (mock_socket, self.adress)
             request = {'request_type':'user_aprove_response'}
             mock_socket.recv.return_value = json.dumps(request).encode()
-            self.test_object.run_external_server(mock_socket) 
-            response = self.test_object.test_queue.get()
-            mock_socket.send.assert_called_with(self.reply.encode())    
+            thread = self.test_object.run_external_server(mock_socket)
+            thread.join()
+            mock_socket.send.assert_called_with(self.reply.encode())
         self.test_object.external_handlers[request['request_type']].assert_called_once()
 
     def test_wrong_request_type(self):
@@ -154,18 +169,17 @@ class TestRunExternalServer(TestCase):
             mock_socket.accept.return_value = (mock_socket, self.adress)
             request = {'request_type':'wrong_signal'}
             mock_socket.recv.return_value = json.dumps(request).encode()
-            self.test_object.run_external_server(mock_socket) 
-            response = self.test_object.test_queue.get()           
-        self.assertEqual('Wrong request type', response)
+            thread = self.test_object.run_external_server(mock_socket)
+            thread.join()
+        mock_socket.close.assert_called_once()
 
 
 class TestRunInternalServer(TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.test_object = EchoServer('127.0.0.1', 20900, '127.0.0.1', 10900)
+        cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
         cls.test_object.DEBUG = True
-        cls.adress = ('127.0.0.1', 20900)
         for item in cls.test_object.internal_handlers.keys():
             cls.test_object.internal_handlers[item] = Mock(name=item)
 
@@ -178,8 +192,8 @@ class TestRunInternalServer(TestCase):
             mock_socket.accept.return_value = (mock_socket, self.adress)
             request = {'request_type':'aprove_user_request'}
             mock_socket.recv.return_value = json.dumps(request).encode()
-            self.test_object.run_internal_server(mock_socket) 
-            response = self.test_object.test_queue.get()           
+            thread = self.test_object.run_internal_server(mock_socket)
+            thread.join()
         self.test_object.internal_handlers[request['request_type']].assert_called_once()
 
     def test_video_request_handler_called(self):
@@ -187,8 +201,8 @@ class TestRunInternalServer(TestCase):
             mock_socket.accept.return_value = (mock_socket, self.adress)
             request = {'request_type':'video_request'}
             mock_socket.recv.return_value = json.dumps(request).encode()
-            self.test_object.run_internal_server(mock_socket)
-            response = self.test_object.test_queue.get()                    
+            thread = self.test_object.run_internal_server(mock_socket)
+            thread.join()
         self.test_object.internal_handlers[request['request_type']].assert_called_once()
 
     def test_steam_request_handler_called(self):
@@ -196,8 +210,8 @@ class TestRunInternalServer(TestCase):
             mock_socket.accept.return_value = (mock_socket, self.adress)
             request = {'request_type':'stream_request'}
             mock_socket.recv.return_value = json.dumps(request).encode()
-            self.test_object.run_internal_server(mock_socket)
-            response = self.test_object.test_queue.get()            
+            thread = self.test_object.run_internal_server(mock_socket)
+            thread.join()
         self.test_object.internal_handlers[request['request_type']].assert_called_once()
 
     def test_wrong_request_type(self):
@@ -205,90 +219,69 @@ class TestRunInternalServer(TestCase):
             mock_socket.accept.return_value = (mock_socket, self.adress)
             request = {'request_type':'wrong_signal'}
             mock_socket.recv.return_value = json.dumps(request).encode()
-            self.test_object.run_internal_server(mock_socket)  
-            response = self.test_object.test_queue.get()          
-        self.assertEqual('Wrong request type', response)
+            thread = self.test_object.run_internal_server(mock_socket)
+            thread.join()
+        mock_socket.close.assert_called_once()
 
 
 class TestHandlerSignal(TestCase):
     
     @classmethod
-    def setUp(cls):       
-        cls.test_object = EchoServer('127.0.0.1', 20900, '127.0.0.1', 10900)
+    def setUpClass(cls):       
+        cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
         cls.test_object.DEBUG = True
-        cls.adress = ('127.0.0.1', 10900) 
-        cls.request = {'request_type':'signal'}
+        cls.request = ServerRequest(request_type='signal',connection=Mock(), address=test_adress)
         cls.test_object.check_connection = Mock()
+        cls.test_signal = ServerRequest(request_type='test')
     
     @classmethod
-    def tearDown(cls):        
-        cls.test_object.signal_queue.put(ServerRequest(request_type='restart'))
-        while cls.test_object.test_queue.qsize() > 0:            
-            cls.test_object.test_queue.get()
+    def tearDownClass(cls):
+        pass
 
     def test_check_tread_started(self):
-        with patch('socket.socket') as mock_socket:
-            self.test_object.ehandler_signal(self.request, mock_socket, self.adress)
-            for th in threading.enumerate():
-                if th.name == 'ehandler_signal':
-                    thread = True
-                    break
-            self.assertTrue(thread)
-    
+        thread = self.test_object.ehandler_signal(self.request)
+        self.test_object.signal_queue.put(self.test_signal)
+        th_running = False
+        for th in threading.enumerate():
+            if th.name == 'ehandler_signal':
+                th_running = True
+                break
+        self.assertTrue(th_running)
+        thread.join()
+
     def test_sending_signal_to_client(self):
-        with patch('socket.socket') as mock_socket:
-            self.test_object.ehandler_signal(self.request, mock_socket, self.adress)
-            request = ServerRequest(request_type='stream_request')
-            self.test_object.signal_queue.put(ServerRequest(request_type='stream_request'))
-            response = self.test_object.test_queue.get()
-            self.assertEqual(response, json.dumps(request.__dict__) + '|')
-            params = json.dumps(request.__dict__) + '|'
-            mock_socket.send.assert_called_once_with(params.encode())
-   
+        thread = self.test_object.ehandler_signal(self.request)
+        self.test_object.signal_queue.put(self.test_signal)
+        expected_msg = json.dumps(self.test_signal.__dict__) + '|'
+        thread.join()
+        self.request.connection.send.assert_called_with(expected_msg.encode())
+
     def test_restart_signal(self):
-        with patch('socket.socket') as mock_socket:
-            self.test_object.ehandler_signal(self.request, mock_socket, self.adress)
-            thread = False
-            for th in threading.enumerate():
-                if th.name == 'ehandler_signal':
-                    thread = True
-                    break
-            self.assertTrue(thread)
-            self.test_object.signal_queue.put(ServerRequest(request_type='restart'))
-            response = self.test_object.test_queue.get()
-            self.assertEqual(response, 'Signal thread shutdown')            
-            thread = False
-            for th in threading.enumerate():
-                if th.name == 'ehandler_signal':
-                    thread = True
-                    break
-            self.assertFalse(thread)
-
-    
-class TestHandlerStreamSource(TestCase):
-
-    @classmethod
-    def setUp(cls):       
-        cls.test_object = EchoServer('127.0.0.1', 20900, '127.0.0.1', 10900)
-        cls.test_object.DEBUG = True
-        cls.connection = Mock()
-        cls.address = '127.0.0.1'
-        cls.sock = SocketConn(cls.connection, cls.address)
-    
-    def test_stream_source_queue(self):
-        self.test_object.ehandler_stream_source({}, self.connection, self.address)
-        response = self.test_object.stream_queue.get()
-        self.assertEqual(response.connection, self.sock.connection)
+        thread = self.test_object.ehandler_signal(self.request)
+        th_runing = False
+        for th in threading.enumerate():
+            if th.name == 'ehandler_signal':
+                th_runing = True
+                break
+        self.assertTrue(th_runing)
+        self.test_object.signal_queue.put(ServerRequest(request_type='restart'))
+        thread.join()      
+        th_runing = False
+        for th in threading.enumerate():
+            if th.name == 'ehandler_signal':
+                th_runing = True
+                break
+        self.assertFalse(th_runing)
 
 
 class TestHandlerNewRecord(TestCase):
 
     @classmethod
-    def setUp(cls):       
-        cls.test_object = EchoServer('127.0.0.1', 20900, '127.0.0.1', 10900)
+    def setUpClass(cls):       
+        cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
         cls.test_object.DEBUG = True
-        cls.address = ('127.0.0.1', 12345)
         cls.test_object.save_record = Mock()
+        cls.test_object.save_or_update_camera = Mock()
         cls.time_1 = datetime.datetime.now(tz=timezone)
         cls.time_2 = datetime.datetime.now(tz=timezone) + datetime.timedelta(days=10)
         cls.record_1 = {'date_created': cls.time_1.isoformat(), 
@@ -301,42 +294,68 @@ class TestHandlerNewRecord(TestCase):
                       'cat_det':False,
                       'car_det':False,
                       'chiken_det':False}
-    
+        cls.camera_record = {'camera_name':'test'}
+        cls.test_request_video_record = ServerRequest(request_type='new_record',
+                                                      db_record='aaa',
+                                                      connection=Mock())
+        cls.test_request_camera = ServerRequest(request_type='new_record',
+                                                      camera_name='aaa',
+                                                      connection=Mock())
+
+    @classmethod
+    def tearDownClass(cls):
+        pass
+
     def test_receive_single_record(self):
-        with patch('socket.socket') as mock_socket:
-            mock_socket.recv.return_value = json.dumps(self.record_1).encode()
-            self.test_object.ehandler_new_record({}, mock_socket, self.address)
-            response = self.test_object.save_db_records_queue.get()
-            self.assertEqual(self.record_1, response)
+        self.test_request_video_record.connection.recv.return_value = json.dumps(self.record_1).encode()
+        thread = self.test_object.ehandler_new_record(self.test_request_video_record)
+        response = self.test_object.save_db_records_queue.get()
+        self.assertEqual(self.record_1, response)
+        thread.join()
+        self.test_object.save_record.assert_called()
 
     def test_receive_multiple_records(self):
         record_list = [json.dumps(self.record_1), json.dumps(self.record_2)]
-        with patch('socket.socket') as mock_socket:
-            mock_socket.recv.return_value = str.encode('\n'.join(record_list))
-            self.test_object.ehandler_new_record({}, mock_socket, self.address)
-            response = self.test_object.save_db_records_queue.get()
-            self.assertEqual(self.record_1, response)
-    
+        self.test_request_video_record.connection.recv.return_value = str.encode('\n'.join(record_list))
+        thread = self.test_object.ehandler_new_record(self.test_request_video_record)
+        response = self.test_object.save_db_records_queue.get()
+        self.assertEqual(self.record_1, response)
+        response = self.test_object.save_db_records_queue.get()
+        self.assertEqual(self.record_2, response)
+        thread.join()
+
     def test_empty_string(self):
-        with patch('socket.socket') as mock_socket:
-            mock_socket.recv.return_value = b""
-            self.test_object.ehandler_new_record({}, mock_socket, self.address)
-            self.assertEqual(0, self.test_object.save_db_records_queue.qsize())
+        self.test_request_video_record.connection.recv.return_value = b""
+        thread = self.test_object.ehandler_new_record(self.test_request_video_record)
+        thread.join()
+        self.assertEqual(0, self.test_object.save_db_records_queue.qsize())
 
     def test_save_record_called(self):
-        with patch('socket.socket') as mock_socket:
-            mock_socket.recv.return_value = b""
-            self.test_object.ehandler_new_record({}, mock_socket, self.address)
-        self.test_object.save_record.assert_called_once()
+        self.test_request_video_record.connection.recv.return_value = b""
+        thread = self.test_object.ehandler_new_record(self.test_request_video_record)
+        thread.join()
+        self.test_object.save_record.assert_called()
+    
+    def test_save_or_update_camera_called(self):
+        self.test_request_camera.connection.recv.return_value = b""
+        thread = self.test_object.ehandler_new_record(self.test_request_camera)
+        thread.join()
+        self.test_object.save_or_update_camera.assert_called()
+    
+    def test_camera_record_added_to_queue(self):
+        self.test_request_camera.connection.recv.return_value = str.encode(json.dumps(self.camera_record))
+        thread = self.test_object.ehandler_new_record(self.test_request_camera)
+        response = self.test_object.camera_records_queue.get()
+        self.assertEqual(self.camera_record, response)
+        thread.join()
 
 
 class TestSaveRecord(TestCase):
 
     @classmethod
     def setUpClass(cls):            
-        cls.test_object = EchoServer('127.0.0.1', 20900, '127.0.0.1', 10900)
+        cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
         cls.test_object.DEBUG = True
-        cls.address = ('127.0.0.1', 12345)
         cls.time_1 = datetime.datetime.now(tz=timezone)
         cls.time_2 = datetime.datetime.now(tz=timezone) + datetime.timedelta(days=10)
         cls.record_1 = {'date_created': cls.time_1.isoformat(), 
@@ -360,13 +379,12 @@ class TestSaveRecord(TestCase):
         records = ArchiveVideo.objects.all()
         for item in records:
             item.delete()
-    
+
     @patch('camera_conn.connect_to_db')
     def test_connect_to_db_called(self, connect_to_db):
         connect_to_db.return_value = (None, None)
-        self.test_object.save_record()
-        response = self.test_object.test_queue.get()
-        self.assertEqual('DB connection failed', response)
+        thread = self.test_object.save_record()
+        thread.join()
         connect_to_db.assert_called_once()
 
     def test_record_saved(self):
@@ -375,8 +393,8 @@ class TestSaveRecord(TestCase):
             item.delete()
 
         self.test_object.save_db_records_queue.put(self.record_1)
-        self.test_object.save_record()
-        response = self.test_object.test_queue.get()
+        thread = self.test_object.save_record()
+        thread.join()
         records = ArchiveVideo.objects.all()
         self.assertEqual(len(records), 1)
         self.assertEqual(self.time_1, records[0].date_created)
@@ -387,8 +405,8 @@ class TestSaveRecord(TestCase):
             item.delete()
 
         self.test_object.save_db_records_queue.put(self.corrupted_record)
-        self.test_object.save_record()
-        response = self.test_object.test_queue.get()
+        thread = self.test_object.save_record()
+        thread.join()
         records = ArchiveVideo.objects.all()
         self.assertEqual(len(records), 0)
 
@@ -399,29 +417,55 @@ class TestSaveRecord(TestCase):
 
         self.test_object.save_db_records_queue.put(self.record_1)
         self.test_object.save_db_records_queue.put(self.record_2)
-        self.test_object.save_record()
-        response = self.test_object.test_queue.get()
+        thread = self.test_object.save_record()
+        thread.join()
         records = ArchiveVideo.objects.all()
         self.assertEqual(len(records), 2)
 
     def test_multiple_corrupted_records_fail(self):
         records = ArchiveVideo.objects.all()
         for item in records:
-            item.delete()
+           item.delete()
 
         self.test_object.save_db_records_queue.put(self.corrupted_record)
         self.test_object.save_db_records_queue.put(self.record_1)
         self.test_object.save_db_records_queue.put(self.record_2)   
-        self.test_object.save_record()
-        response = self.test_object.test_queue.get()
+        thread = self.test_object.save_record()
+        thread.join()
         records = ArchiveVideo.objects.all()
         self.assertEqual(len(records), 2)
+
+class TestSaveOrUpdateCamera(TestCase):
+
+    @classmethod
+    def setUpClass(cls):            
+        cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
+        cls.test_object.DEBUG = True
+
+    def test_db_connect_called(self):
+        pass
+
+    def test_save_new_camera(self):
+        pass
+
+    def test_update_camera(self):
+        pass
+
+    def test_nonactive_camera_no_update(self):
+        pass
+    
+    def test_multiple_cameras_update(self):
+        pass
+    
+    def test_corrupted_record(self):
+        pass
+
 
 class TestHandlerVideoResponse(TestCase):
 
     @classmethod
     def setUpClass(cls):  
-        cls.test_object = EchoServer('127.0.0.1', 20900, '127.0.0.1', 10900)
+        cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
         cls.test_object.DEBUG = True
         cls.request = ServerRequest(request_type='video_response',
                                     video_name='25-01-2021T14:29:18',
@@ -468,7 +512,7 @@ class TestHandlerUserAproveResponse(TestCase):
 
     @classmethod
     def setUpClass(cls):  
-        cls.test_object = EchoServer('127.0.0.1', 20900, '127.0.0.1', 10900)
+        cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
         cls.test_object.DEBUG = True
         cls.address = '127.0.0.1'
         cls.request_accepted = ServerRequest(request_type='user_prove_response',
@@ -519,7 +563,7 @@ class TestHandlerUserAproveRequest(TestCase):
 
     @classmethod
     def setUpClass(cls):  
-        cls.test_object = EchoServer('127.0.0.1', 20900, '127.0.0.1', 10900)
+        cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
         cls.test_object.DEBUG = True
         cls.mock_socket = Mock()
         cls.address = '127.0.0.1'
@@ -540,11 +584,10 @@ class TestHandlerStreamRequest(TestCase):
 
     @classmethod
     def setUpClass(cls):  
-        cls.test_object = EchoServer('127.0.0.1', 20900, '127.0.0.1', 10900)
+        cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
         cls.test_object.DEBUG = True
         cls.mock_socket = Mock()
         cls.address = '127.0.0.1'
-        cls.sock = SocketConn(cls.mock_socket, cls.address)
         cls.request = ServerRequest(request_type='stream_request')
         cls.test_object.restream_video = Mock()
     
@@ -567,13 +610,12 @@ class TestHandlerVideoRequest(TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.test_object = EchoServer('127.0.0.1', 20900, '127.0.0.1', 10900)
+        cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
         cls.test_object.DEBUG = True
         cls.mock_socket = Mock()
         cls.address = '127.0.0.1'
         cls.request = ServerRequest(request_type='video_request')
         cls.test_object.video_manager = Mock()
-        cls.sock = SocketConn(cls.mock_socket, cls.address, request=cls.request)
 
     @classmethod
     def tearDownClass(cls):
@@ -594,7 +636,7 @@ class TestRestreamVideo(TestCase):
 
     @classmethod
     def setUp(cls):  
-        cls.test_object = EchoServer('127.0.0.1', 20900, '127.0.0.1', 10900)
+        cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
         cls.test_object.DEBUG = True
         cls.test_object.stream_q_timeout = 0.1
         cls.mock_socket = Mock()
@@ -787,3 +829,24 @@ class TestCheckConnection(TestCase):
         test_signal = self.test_object.signal_queue.get()
         self.mock_socket.close.assert_called_once()
         self.assertEqual(self.result.request_type, test_signal.request_type)
+
+
+
+
+
+
+
+
+class TestHandlerStreamSource(TestCase):
+
+    @classmethod
+    def setUp(cls):       
+        cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
+        cls.test_object.DEBUG = True
+        cls.connection = Mock()
+        cls.address = '127.0.0.1'
+    
+    def test_stream_source_queue(self):
+        self.test_object.ehandler_stream_source({}, self.connection, self.address)
+        response = self.test_object.stream_queue.get()
+        self.assertEqual(response.connection, self.sock.connection)

@@ -166,7 +166,6 @@ class EchoServer:
         self.video_response_q_timeout = 5
         self.save_db_records_queue = queue.Queue()
         self.save_db_records_q_timeout = 5
-        self.test_queue = queue.Queue()
         self.external_address = external_address
         self.external_port = external_port
         self.internal_address = internal_address
@@ -193,7 +192,6 @@ class EchoServer:
         del state['video_requesters_queue'],
         del state['video_response_queue'],
         del state['save_db_records_queue']
-        del state['test_queue']
         return state
 
     def __setstate__(self, state):        
@@ -204,7 +202,6 @@ class EchoServer:
         self.video_requesters_queue = queue.Queue()
         self.video_response_queue = queue.Queue()
         self.save_db_records_queue = queue.Queue()
-        self.test_queue = queue.Queue()
 
     def list_handlers(self):
         string = 'External request types:'
@@ -275,17 +272,13 @@ class EchoServer:
                 else:
                     log.info('Start handler %s', request.request_type)
                     self.external_handlers[request.request_type](self, request)
-                    if self.DEBUG:
-                        self.test_queue.put('External Handler called')  
 
             else:
-                log.warning('Wrong request type. Closing connection')
-                if self.DEBUG:
-                        self.test_queue.put('Wrong request type')
+                log.warning('Wrong request type. Closing connection')                
                 external_conn.close()
             
             if self.DEBUG:
-                break
+                return
 
     @check_thread
     def run_internal_server(self, internal_sock):
@@ -301,24 +294,20 @@ class EchoServer:
 
             if request.request_type in self.internal_handlers.keys():
                 log.info('Start handler %s', request.request_type)
-                if self.DEBUG:
-                        self.test_queue.put('Internal Handler called')
                 self.internal_handlers[request.request_type](self, request)
             else:
                 log.warning('Wrong request type. Closing connection')
-                if self.DEBUG:
-                        self.test_queue.put('Wrong request type')
                 internal_conn.close()
             
             if self.DEBUG:
-                break
+                return
     
     @check_thread
-    def ehandler_signal(self, request):
+    def ehandler_signal(self, signal):
         log = logging.getLogger('Signal thread')
         log.info('Signal thread started')
 
-        self.check_connection(log, request.connection, 'restart')
+        self.check_connection(log, signal.connection, 'restart')
 
         while True:
             log.info('Waiting for new signal')
@@ -326,19 +315,17 @@ class EchoServer:
             log.info('Get signal:%s', signal.request_type)   
             if signal.request_type == 'restart':
                 log.warning('Shutting down thread due to received signal')
-                if self.DEBUG:
-                    self.test_queue.put('Signal thread shutdown')
                 break
             try:
                 log.info('Sending signal')
                 message = json.dumps(signal.__dict__ ) + '|'
-                request.connection.send(message.encode())
-                if self.DEBUG:
-                    self.test_queue.put(message)                
+                signal.connection.send(message.encode())              
             except:
                 log.warning('Connection lost. Shutting down thread')
                 break
-        request.connection.close()
+            if self.DEBUG:
+                return  
+        signal.connection.close()
 
     @new_thread
     def ehandler_new_record(self, request):
@@ -396,14 +383,10 @@ class EchoServer:
                     db_conn.commit()
 
             log.info('No more new records')
-
             if self.DEBUG:
-                self.test_queue.put('Records saved')    
+                return   
             cur.close()
             db_conn.close()
-        
-        if self.DEBUG and not db_conn:
-            self.test_queue.put('DB connection failed')
 
     @check_thread
     def save_or_update_camera(self):
@@ -439,10 +422,8 @@ class EchoServer:
                 self.stream_channels[record['camera_name']] = StreamChannel(record['camera_name'])
                 db_conn.commit()
             cur.close()
-            db_conn.close()    
-
+            db_conn.close()
             log.info('No more new records')
-
             if self.DEBUG:
                 self.test_queue.put('Records saved')
         

@@ -19,11 +19,11 @@ def check_thread(target_function):
         if not thread_running :
             logging.info('Starting thread %s', target_function.__name__)                
             thread = threading.Thread(target=target_function, args=args, name=target_function.__name__)
-            thread.start()               
+            thread.start()
+            return thread
         else:
             logging.warning('Thread %s already running', target_function.__name__)  
 
-        return None
     return inner
 
 def new_thread(target_function):
@@ -32,6 +32,7 @@ def new_thread(target_function):
 
         thread = threading.Thread(target=target_function, args=args, kwargs=kwargs)
         thread.start()
+        return thread
 
     return inner
 

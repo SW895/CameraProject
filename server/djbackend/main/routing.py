@@ -8,5 +8,3 @@ manager.run_manager()
 websocket_urlpatterns = [
     path('ws/stream/<str:camera_name>/', consumers.VideoStreamConsumer.as_asgi(manager=manager)),
 ]
-
-

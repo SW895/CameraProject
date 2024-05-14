@@ -4,6 +4,7 @@ import socket
 import queue
 import threading
 import struct
+from .models import Camera
 
 
 def new_thread(target_function):
@@ -31,6 +32,24 @@ class VideoStreamSource:
         self.payload_size = struct.calcsize("Q")
         self.stream_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.stream_socket.settimeout(5.0)
+    
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        del state['consumer_queue']
+        del state['_mutex'],
+        del state['_thread_working'],
+        del state['_thread_dead'],
+        return state
+
+    def __setstate__(self, state):        
+        self.__dict__.update(state)
+        self.consumer_queue = queue.Queue()
+        self._mutex = threading.Lock()
+        self._thread_working = threading.Event()
+        self._thread_dead = threading.Event()
+
+    def wait_end_thread(self): # for testing
+        self._thread_dead.wait()
 
     def thread_dead(self):
         self._thread_dead.set()   
@@ -66,7 +85,8 @@ class VideoStreamSource:
         self.stream_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.stream_socket.settimeout(5.0)
         try:
-            self.stream_socket.connect((os.environ.get('INTERNAL_HOST', '127.0.0.1'), int(os.environ.get('INTERNAL_PORT', 20900))))
+            self.stream_socket.connect((os.environ.get('INTERNAL_HOST', '127.0.0.1'), 
+                                        int(os.environ.get('INTERNAL_PORT', 20900))))
         except:
             self.thread_dead()
             self.stream_socket.close()
@@ -98,9 +118,11 @@ class VideoStreamSource:
                     else:
                         break
             self.stream_socket.close()
-        
+
+        while self.consumer_queue.qsize() > 0:
+            consumer_list.append(self.consumer_queue.get())        
         for consumer in consumer_list:
-            consumer.disconnect('1') #????????
+            consumer.disconnect('1') #???????? consumer.websocket_disconnect(msg)
         self.void_consumers()
         self.thread_dead()
    
@@ -138,7 +160,17 @@ class VideoStreamManager:
     def __init__(self):
         self.stream_sources = {}
         self.consumer_queue = queue.Queue()
-        self._valid = threading.Event()
+        self._end_manager = threading.Event()
+    
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        del state['consumer_queue']
+        del state['_end_manager'],
+        return state
+
+    def __setstate__(self, state):        
+        self.__dict__.update(state)
+        self.consumer_queue = queue.Queue()
         self._end_manager = threading.Event()
 
     def run_manager(self):
@@ -150,43 +182,26 @@ class VideoStreamManager:
     def manager_working(self):
         return not self._end_manager.is_set()
     
-    def is_valid(self):
-        return self._valid.is_set()
-
-    def stream_sources_valid(self):
-        self._valid.set()
-
-    def stream_sources_invalid(self):
-        self._valid.clear()
-    
-    def wait_validation(self):
-        self._valid.wait()
-
-    @new_thread
-    def validate_stream_sources(self):
-        from .models import Camera
+    def validate_stream_sources(self):        
         stream_sources = Camera.objects.filter(is_active=True)
         self.stream_sources.clear()
-
         for source in stream_sources:
             self.stream_sources[source.camera_name] = VideoStreamSource(source.camera_name)
-        self.stream_sources_valid()
     
     @new_thread
     def run_manager(self):
         while self.manager_working():
             consumer = self.consumer_queue.get()
-            if not(consumer.camera_name in self.stream_sources) and self.is_valid():
-                self.stream_sources_invalid()
+            if not(consumer.camera_name in self.stream_sources):
                 self.validate_stream_sources()
-                self.wait_validation()
-                
+
             current_stream_source = self.stream_sources[consumer.camera_name]
-            current_stream_source.consumer_queue.put(consumer)
 
             if current_stream_source.consumer_number() == 0:
                 current_stream_source.kill_thread()
                 current_stream_source.add_consumer()
+                current_stream_source.consumer_queue.put(consumer)
                 current_stream_source.run_thread()
             else:
                 current_stream_source.add_consumer()
+                current_stream_source.consumer_queue.put(consumer)
