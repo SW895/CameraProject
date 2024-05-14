@@ -303,11 +303,11 @@ class EchoServer:
                 return
     
     @check_thread
-    def ehandler_signal(self, signal):
+    def ehandler_signal(self, signal_conn):
         log = logging.getLogger('Signal thread')
         log.info('Signal thread started')
 
-        self.check_connection(log, signal.connection, 'restart')
+        self.check_connection(log, signal_conn.connection, 'restart')
 
         while True:
             log.info('Waiting for new signal')
@@ -319,13 +319,13 @@ class EchoServer:
             try:
                 log.info('Sending signal')
                 message = json.dumps(signal.__dict__ ) + '|'
-                signal.connection.send(message.encode())              
+                signal_conn.connection.send(message.encode())              
             except:
                 log.warning('Connection lost. Shutting down thread')
                 break
             if self.DEBUG:
                 return  
-        signal.connection.close()
+        signal_conn.connection.close()
 
     @new_thread
     def ehandler_new_record(self, request):
