@@ -21,7 +21,7 @@ class CachedVideo(models.Model):
 
     
 class Camera(models.Model):
-    camera_name = models.CharField(max_length=50, unique=True)
+    camera_name = models.CharField(max_length=50, primary_key=True)
     is_active = models.BooleanField(default=False)
 
     def __str__(self):

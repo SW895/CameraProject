@@ -437,31 +437,64 @@ class TestSaveRecord(TestCase):
         records = ArchiveVideo.objects.all()
         self.assertEqual(len(records), 2)
 
-"""
+import logging
 class TestSaveOrUpdateCamera(TestCase):
 
     @classmethod
     def setUpClass(cls):            
         cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
         cls.test_object.DEBUG = True
-
-    def test_db_connect_called(self):
+        cls.test_camera_record_1 = {'camera_name':'test_camera_1'}
+        cls.test_camera_record_2 = {'camera_name':'test_camera_2'}
+    
+    @classmethod
+    def tearDownClass(cls):
         pass
+
+    @patch('camera_conn.connect_to_db')
+    def test_db_connect_called(self, connect_to_db):
+        connect_to_db.return_value = None, None
+        thread = self.test_object.save_or_update_camera()
+        thread.join()
+        connect_to_db.assert_called_once()
 
     def test_save_new_camera(self):
-        pass
+        self.test_object.camera_records_queue.put(self.test_camera_record_1)
+        thread = self.test_object.save_or_update_camera()
+        thread.join()
+        records = Camera.objects.all()
+        self.assertEqual(len(records), 1)
 
     def test_update_camera(self):
-        pass
+        self.test_object.camera_records_queue.put(self.test_camera_record_1)
+        thread = self.test_object.save_or_update_camera()
+        thread.join()
+        self.test_object.camera_records_queue.put(self.test_camera_record_1)
+        thread = self.test_object.save_or_update_camera()
+        thread.join()
+        record = Camera.objects.all()
+        self.assertEqual(len(record), 1)
+        self.assertTrue(record[0].is_active)
 
     def test_nonactive_camera_no_update(self):
-        pass
-    
+        self.test_object.camera_records_queue.put(self.test_camera_record_1)
+        self.test_object.camera_records_queue.put(self.test_camera_record_2)
+        thread = self.test_object.save_or_update_camera()
+        thread.join()
+        self.test_object.camera_records_queue.put(self.test_camera_record_1)
+        thread = self.test_object.save_or_update_camera()
+        thread.join()
+        record = Camera.objects.filter(is_active=True)
+        self.assertEqual(1, len(record))
+
     def test_multiple_cameras_update(self):
-        pass
-    
-    def test_corrupted_record(self):
-        pass
+        self.test_object.camera_records_queue.put(self.test_camera_record_1)
+        self.test_object.camera_records_queue.put(self.test_camera_record_2)
+        thread = self.test_object.save_or_update_camera()
+        thread.join()
+        records = Camera.objects.all()
+        self.assertEqual(2, len(records))
+
 
 class TestHandlerVideoResponse(TestCase):
 
@@ -484,7 +517,8 @@ class TestHandlerVideoResponse(TestCase):
     def test_video_received(self):
         with patch('socket.socket') as mock_socket:
             mock_socket.recv.return_value = bytes(125000)
-            self.test_object.ehandler_video_response(self.request, mock_socket, self.address)
+            self.request.connection = mock_socket
+            self.test_object.ehandler_video_response(self.request)
             response = self.test_object.video_response_queue.get()
             self.assertEqual('success', response.request_result)
             self.assertEqual(self.video_name, response.video_name)
@@ -493,18 +527,20 @@ class TestHandlerVideoResponse(TestCase):
     def test_failed_to_receive_video(self):
         with patch('socket.socket') as mock_socket:
             mock_socket.recv.return_value = bytes(2)
-            self.test_object.ehandler_video_response(self.request, mock_socket, self.address)
+            self.request.connection = mock_socket
+            self.test_object.ehandler_video_response(self.request)
             response = self.test_object.video_response_queue.get()
             self.assertEqual('failure', response.request_result)
             self.assertEqual(self.video_name, response.video_name)
 
     def test_no_such_video(self):
         with patch('socket.socket') as mock_socket:
+            mock_socket.recv.return_value = None
             request = ServerRequest(request_type='video_response',
                                     video_name='25-01-2021T14:29:18',
-                                    video_size=0)
-            mock_socket.recv.return_value = None
-            self.test_object.ehandler_video_response(request, mock_socket, self.address)
+                                    video_size=0,
+                                    connection=mock_socket)            
+            self.test_object.ehandler_video_response(request)
             response = self.test_object.video_response_queue.get()
             self.assertEqual('failure', response.request_result)
             self.assertEqual(self.video_name, response.video_name)
@@ -516,14 +552,15 @@ class TestHandlerUserAproveResponse(TestCase):
     def setUpClass(cls):  
         cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
         cls.test_object.DEBUG = True
-        cls.address = '127.0.0.1'
+        mock_socket = Mock()
         cls.request_accepted = ServerRequest(request_type='user_prove_response',
                                              request_result='aproved',
-                                             username='username_1')
+                                             username='username_1',
+                                             connection=mock_socket)
         cls.request_denied = ServerRequest(request_type='user_prove_response',
                                              request_result='denied',
-                                             username='username_2')
-        cls.mock_socket = Mock()
+                                             username='username_2',
+                                             connection=mock_socket)
         cls.pk_accepted = User.objects.create_user(username='username_1',
                          email='1@mail.ru',
                          password='123',
@@ -542,20 +579,20 @@ class TestHandlerUserAproveResponse(TestCase):
     @patch('camera_conn.connect_to_db')
     def test_connect_to_db_called(self, connect_to_db):        
         connect_to_db.return_value = (None, None)
-        self.test_object.ehandler_user_aprove_response(self.request_accepted, self.mock_socket, self.address)
-        response = self.test_object.test_queue.get()
+        thread = self.test_object.ehandler_user_aprove_response(self.request_accepted)
+        thread.join()
         connect_to_db.assert_called_once()
 
     def test_accept_user(self):
-        self.test_object.ehandler_user_aprove_response(self.request_accepted, self.mock_socket, self.address)
-        response = self.test_object.test_queue.get()
+        thread = self.test_object.ehandler_user_aprove_response(self.request_accepted)
+        thread.join()
         user = User.objects.get(pk=self.pk_accepted)
         self.assertTrue(user.is_active)
         self.assertTrue(user.admin_checked)
 
     def test_deny_user(self):
-        self.test_object.ehandler_user_aprove_response(self.request_denied, self.mock_socket, self.address)
-        response = self.test_object.test_queue.get()
+        thread = self.test_object.ehandler_user_aprove_response(self.request_denied)
+        thread.join()
         user = User.objects.get(pk=self.pk_denied)
         self.assertFalse(user.is_active)
         self.assertTrue(user.admin_checked)
@@ -567,21 +604,186 @@ class TestHandlerUserAproveRequest(TestCase):
     def setUpClass(cls):  
         cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
         cls.test_object.DEBUG = True
-        cls.mock_socket = Mock()
-        cls.address = '127.0.0.1'
         cls.request = ServerRequest(request_type='aprove_user_request',
-                                    username='username')
+                                    username='username',
+                                    connection=Mock())
     
     @classmethod
     def tearDownClass(cls):
         pass
     
     def test_push_signal_to_queue(self):
-        self.test_object.ihandler_aprove_user_request(self.request, self.mock_socket, self.address)
+        self.test_object.ihandler_aprove_user_request(self.request)
         response = self.test_object.signal_queue.get()
         self.assertEqual(self.request, response)
 
 
+class TestHandlerVideoRequest(TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
+        cls.test_object.DEBUG = True
+        cls.request = ServerRequest(request_type='video_request', connection=Mock())
+        cls.test_object.video_manager = Mock()
+
+    @classmethod
+    def tearDownClass(cls):
+        pass
+
+    def test_push_video_request_to_queue(self):
+        self.test_object.ihandler_video_request(self.request)
+        response = self.test_object.video_requesters_queue.get()
+        self.assertEqual(self.request, response)
+
+    def test_video_manager_called(self):
+        self.test_object.ihandler_video_request(self.request)
+        response = self.test_object.video_requesters_queue.get()
+        self.test_object.video_manager.assert_called()
+
+
+class TestVideoManager(TestCase):
+
+    @classmethod
+    def setUpClass(cls):  
+        cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
+        cls.test_object.DEBUG = True
+        cls.request_1 = ServerRequest(request_type='video',
+                                      video_name='20-01-2023T14:23:41',
+                                      connection=Mock())
+        cls.request_2 = ServerRequest(request_type='video',
+                                      video_name='20-01-2023T14:23:41',
+                                      connection=Mock())
+        cls.response_success = ServerRequest(request_type='video',
+                                            request_result='success',
+                                            video_name='20-01-2023T14:23:41')
+        cls.response_failure = ServerRequest(request_type='video',
+                                            request_result='failure',
+                                            video_name='20-01-2023T14:23:41')
+    
+    @classmethod
+    def tearDownClass(cls):
+        pass
+
+    def tearDown(self):
+        self.test_object.flush_signal_queue()
+
+    def test_successfully_request_video(self):
+        self.test_object.video_requesters_queue.put(self.request_1)
+        self.test_object.video_response_queue.put(self.response_success)
+        thread = self.test_object.video_manager()
+        self.test_object.kill_video_manager()
+        thread.join()
+        msg = 'success'
+        self.request_1.connection.send.assert_called_with(msg.encode())
+
+    def test_multiple_same_video_requests(self):
+        self.test_object.video_requesters_queue.put(self.request_1)
+        self.test_object.video_requesters_queue.put(self.request_2)
+        self.test_object.video_response_queue.put(self.response_success)
+        thread = self.test_object.video_manager()
+        self.test_object.kill_video_manager()
+        thread.join()
+        signals = []
+        while self.test_object.signal_queue.qsize() > 0:
+            signal = self.test_object.signal_queue.get()
+            signals.append(signal)
+        self.assertEqual(1, len(signals))
+        msg = 'success'
+        self.request_1.connection.send.assert_called_with(msg.encode())
+        self.request_2.connection.send.assert_called_with(msg.encode())
+
+    def test_failure(self):
+        self.test_object.video_requesters_queue.put(self.request_1)
+        self.test_object.video_response_queue.put(self.response_failure)
+        thread = self.test_object.video_manager()
+        self.test_object.kill_video_manager()
+        thread.join()
+        msg = 'failure'
+        self.request_1.connection.send.assert_called_with(msg.encode())
+    """
+    def test_request_live_time(self):
+        self.test_object.video_request_timeout = 1
+        mock_socket = Mock()
+        self.test_object.video_requesters_queue.put(SocketConn(mock_socket, 
+                                                               self.address, 
+                                                               request=ServerRequest(request_type='video',
+                                                                                     video_name='20-01-2023T14:23:41')))
+        self.test_object.video_manager()
+        response = self.test_object.test_queue.get()
+        msg = 'failure'
+        mock_socket.send.assert_called_once_with(msg.encode())
+
+    def test_multiple_video_requests(self):
+        mock_socket_1 = Mock()
+        mock_socket_2 = Mock()
+        self.test_object.video_requesters_queue.put(SocketConn(mock_socket_1, 
+                                                               self.address, 
+                                                               request=ServerRequest(request_type='video',
+                                                                                     video_name='20-01-2023T14:23:41')))
+        self.test_object.video_requesters_queue.put(SocketConn(mock_socket_2, 
+                                                               self.address, 
+                                                               request=ServerRequest(request_type='video',
+                                                                                     video_name='01-01-2023T14:23:41')))
+        self.test_object.video_response_queue.put(ServerRequest(request_type='video',
+                                                                request_result='success',
+                                                                video_name='20-01-2023T14:23:41'))
+        self.test_object.video_response_queue.put(ServerRequest(request_type='video',
+                                                                request_result='success',
+                                                                video_name='01-01-2023T14:23:41'))
+        self.test_object.video_manager()
+        response = self.test_object.test_queue.get()
+        msg = 'success'
+        mock_socket_1.send.assert_called_once_with(msg.encode())
+        mock_socket_2.send.assert_called_once_with(msg.encode())
+"""
+
+class TestCheckConnection(TestCase):
+
+    @classmethod
+    def setUp(cls):  
+        cls.test_object = EchoServer('127.0.0.1', 20900, '127.0.0.1', 10900)
+        cls.test_object.DEBUG = True
+        cls.address = '127.0.0.1'
+        cls.log = Mock()
+        cls.mock_socket = Mock()
+        cls.signal = 'Restart'
+        cls.mock_socket.recv= b""
+        cls.result = ServerRequest(request_type=cls.signal)
+    
+    def test_break_connection(self):        
+        self.test_object.check_connection(self.log, self.mock_socket)
+        response = self.test_object.test_queue.get()
+        self.mock_socket.close.assert_called_once()
+
+    def test_push_signal(self):
+        self.test_object.check_connection(self.log, self.mock_socket, self.signal)
+        response = self.test_object.test_queue.get()
+        test_signal = self.test_object.signal_queue.get()
+        self.mock_socket.close.assert_called_once()
+        self.assertEqual(self.result.request_type, test_signal.request_type)
+
+
+
+
+
+
+
+
+class TestHandlerStreamSource(TestCase):
+
+    @classmethod
+    def setUp(cls):       
+        cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
+        cls.test_object.DEBUG = True
+        cls.connection = Mock()
+        cls.address = '127.0.0.1'
+    
+    def test_stream_source_queue(self):
+        self.test_object.ehandler_stream_source({}, self.connection, self.address)
+        response = self.test_object.stream_queue.get()
+        self.assertEqual(response.connection, self.sock.connection)
+#"""
 class TestHandlerStreamRequest(TestCase):
 
     @classmethod
@@ -606,33 +808,6 @@ class TestHandlerStreamRequest(TestCase):
         self.test_object.ihandler_stream_request(self.request, self.mock_socket, self.address)
         response = self.test_object.stream_requesters_queue.get()
         self.test_object.restream_video.assert_called()
-
-
-class TestHandlerVideoRequest(TestCase):
-
-    @classmethod
-    def setUpClass(cls):
-        cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
-        cls.test_object.DEBUG = True
-        cls.mock_socket = Mock()
-        cls.address = '127.0.0.1'
-        cls.request = ServerRequest(request_type='video_request')
-        cls.test_object.video_manager = Mock()
-
-    @classmethod
-    def tearDownClass(cls):
-        pass
-
-    def test_push_video_request_to_queue(self):
-        self.test_object.ihandler_video_request(self.request, self.mock_socket, self.address)
-        response = self.test_object.video_requesters_queue.get()
-        self.assertEqual(self.sock.request, response.request)
-
-    def test_video_manager_called(self):
-        self.test_object.ihandler_video_request(self.request, self.mock_socket, self.address)
-        response = self.test_object.video_requesters_queue.get()
-        self.test_object.video_manager.assert_called()
-
 
 class TestRestreamVideo(TestCase):
 
@@ -708,148 +883,3 @@ class TestRestreamVideo(TestCase):
         recv_package.assert_called_once()
         requester_1.connection.send.assert_called_once()
         requester_2.connection.send.assert_called_once()
-
-
-class TestVideoManager(TestCase):
-
-    @classmethod
-    def setUp(cls):  
-        cls.test_object = EchoServer('127.0.0.1', 20900, '127.0.0.1', 10900)
-        cls.test_object.DEBUG = True
-        cls.address = '127.0.0.1'
-    
-    def test_successfully_request_video(self):
-        mock_socket = Mock()
-        self.test_object.video_requesters_queue.put(SocketConn(mock_socket, 
-                                                               self.address, 
-                                                               request=ServerRequest(request_type='video',
-                                                                                     video_name='20-01-2023T14:23:41')))
-        self.test_object.video_response_queue.put(ServerRequest(request_type='video',
-                                                                request_result='success',
-                                                                video_name='20-01-2023T14:23:41'))
-        self.test_object.video_manager()
-        msg = 'success'
-        response = self.test_object.test_queue.get()
-        mock_socket.send.assert_called_once_with(msg.encode())
-
-    def test_multiple_same_video_requests(self):
-        mock_socket_1 = Mock()
-        mock_socket_2 = Mock()
-        self.test_object.video_requesters_queue.put(SocketConn(mock_socket_1, 
-                                                               self.address, 
-                                                               request=ServerRequest(request_type='video',
-                                                                                     video_name='20-01-2023T14:23:41')))
-        self.test_object.video_requesters_queue.put(SocketConn(mock_socket_2, 
-                                                               self.address, 
-                                                               request=ServerRequest(request_type='video',
-                                                                                     video_name='20-01-2023T14:23:41')))
-        self.test_object.video_response_queue.put(ServerRequest(request_type='video',
-                                                                request_result='success',
-                                                                video_name='20-01-2023T14:23:41'))
-        self.test_object.video_manager()
-        response = self.test_object.test_queue.get()
-        signals = []
-        while self.test_object.signal_queue.qsize() > 0:
-            signal = self.test_object.signal_queue.get()
-            signals.append(signal)
-        self.assertEqual(1, len(signals))
-        msg = 'success'
-        mock_socket_1.send.assert_called_once_with(msg.encode())
-        mock_socket_2.send.assert_called_once_with(msg.encode())
-    
-    def test_failure(self):
-        mock_socket = Mock()
-        self.test_object.video_requesters_queue.put(SocketConn(mock_socket, 
-                                                               self.address, 
-                                                               request=ServerRequest(request_type='video',
-                                                                                     video_name='20-01-2023T14:23:41')))
-        self.test_object.video_response_queue.put(ServerRequest(request_type='video',
-                                                                request_result='failure',
-                                                                video_name='20-01-2023T14:23:41'))
-        self.test_object.video_manager()
-        response = self.test_object.test_queue.get()
-        msg = 'failure'
-        mock_socket.send.assert_called_once_with(msg.encode())
-
-    def test_request_live_time(self):
-        self.test_object.video_request_timeout = 1
-        mock_socket = Mock()
-        self.test_object.video_requesters_queue.put(SocketConn(mock_socket, 
-                                                               self.address, 
-                                                               request=ServerRequest(request_type='video',
-                                                                                     video_name='20-01-2023T14:23:41')))
-        self.test_object.video_manager()
-        response = self.test_object.test_queue.get()
-        msg = 'failure'
-        mock_socket.send.assert_called_once_with(msg.encode())
-
-    def test_multiple_video_requests(self):
-        mock_socket_1 = Mock()
-        mock_socket_2 = Mock()
-        self.test_object.video_requesters_queue.put(SocketConn(mock_socket_1, 
-                                                               self.address, 
-                                                               request=ServerRequest(request_type='video',
-                                                                                     video_name='20-01-2023T14:23:41')))
-        self.test_object.video_requesters_queue.put(SocketConn(mock_socket_2, 
-                                                               self.address, 
-                                                               request=ServerRequest(request_type='video',
-                                                                                     video_name='01-01-2023T14:23:41')))
-        self.test_object.video_response_queue.put(ServerRequest(request_type='video',
-                                                                request_result='success',
-                                                                video_name='20-01-2023T14:23:41'))
-        self.test_object.video_response_queue.put(ServerRequest(request_type='video',
-                                                                request_result='success',
-                                                                video_name='01-01-2023T14:23:41'))
-        self.test_object.video_manager()
-        response = self.test_object.test_queue.get()
-        msg = 'success'
-        mock_socket_1.send.assert_called_once_with(msg.encode())
-        mock_socket_2.send.assert_called_once_with(msg.encode())
-
-
-class TestCheckConnection(TestCase):
-
-    @classmethod
-    def setUp(cls):  
-        cls.test_object = EchoServer('127.0.0.1', 20900, '127.0.0.1', 10900)
-        cls.test_object.DEBUG = True
-        cls.address = '127.0.0.1'
-        cls.log = Mock()
-        cls.mock_socket = Mock()
-        cls.signal = 'Restart'
-        cls.mock_socket.recv= b""
-        cls.result = ServerRequest(request_type=cls.signal)
-    
-    def test_break_connection(self):        
-        self.test_object.check_connection(self.log, self.mock_socket)
-        response = self.test_object.test_queue.get()
-        self.mock_socket.close.assert_called_once()
-
-    def test_push_signal(self):
-        self.test_object.check_connection(self.log, self.mock_socket, self.signal)
-        response = self.test_object.test_queue.get()
-        test_signal = self.test_object.signal_queue.get()
-        self.mock_socket.close.assert_called_once()
-        self.assertEqual(self.result.request_type, test_signal.request_type)
-
-
-
-
-
-
-
-
-class TestHandlerStreamSource(TestCase):
-
-    @classmethod
-    def setUp(cls):       
-        cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
-        cls.test_object.DEBUG = True
-        cls.connection = Mock()
-        cls.address = '127.0.0.1'
-    
-    def test_stream_source_queue(self):
-        self.test_object.ehandler_stream_source({}, self.connection, self.address)
-        response = self.test_object.stream_queue.get()
-        self.assertEqual(response.connection, self.sock.connection)
-"""

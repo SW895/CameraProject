@@ -55,7 +55,9 @@ class ServerRequest:
             (self.email == other.email) and \
             (self.request_result == other.request_result) and \
             (self.db_record == other.db_record) and \
-            (self.camera_name == other.camera_name):
+            (self.camera_name == other.camera_name) and \
+            (self.connection == other.connection) and \
+            (self.address == other.address):
             return True
         else:
             return False
@@ -182,26 +184,54 @@ class EchoServer:
         self.camera_records_queue = queue.Queue()
         self.stream_channels = {}
         self.stream_requests = threading.Condition()
-
+        self._video_manager = threading.Event()
+        self._videostream_manager = threading.Event()
 
     def __getstate__(self):
         state = self.__dict__.copy()
-        del state['stream_queue'],
+        del state['internal_stream_requests'],
+        del state['external_stream_responses'],
         del state['signal_queue'],
-        del state['stream_requesters_queue'],
         del state['video_requesters_queue'],
         del state['video_response_queue'],
-        del state['save_db_records_queue']
+        del state['save_db_records_queue'],
+        del state['camera_records_queue'],
+        del state['stream_requests'],
+        del state['_video_manager'],
+        del state['_videostream_manager']
         return state
 
     def __setstate__(self, state):        
         self.__dict__.update(state)
-        self.stream_queue = queue.Queue(maxsize=1)
+        self.internal_stream_requests = queue.Queue()
+        self.external_stream_responses = queue.Queue()
         self.signal_queue = queue.Queue()
         self.stream_requesters_queue = queue.Queue()
         self.video_requesters_queue = queue.Queue()
         self.video_response_queue = queue.Queue()
         self.save_db_records_queue = queue.Queue()
+        self.camera_records_queue = queue.Queue()
+        self.stream_requests = threading.Condition()
+        self._video_manager = threading.Event()
+        self._videostream_manager = threading.Event()
+
+    def run_video_manager(self):
+        self._video_manager.clear()
+
+    def kill_video_manager(self):
+        self._video_manager.set()
+
+    def video_manager_running(self):
+        return not self._video_manager.is_set()
+    
+    def run_videostream_manager(self):
+        self._videostream_manager.clear()
+    
+    def kill_videostream_manager(self):
+        self._videostream_manager.set()
+
+    def videostream_manager_running(self):
+        return not self._videostream_manager.is_set()
 
     def list_handlers(self):
         string = 'External request types:'
@@ -396,16 +426,20 @@ class EchoServer:
         self.stream_channels.clear()
         if db_conn:
 
-            log.info('Successfully connected to db')
+            if self.DEBUG:
+                cur.execute('DELETE FROM main_camera')
+                db_conn.commit()
+            
             try:
                 cur.execute("UPDATE main_camera SET is_active=False WHERE is_active=True;")
             except:
                 log.error('No records')
             else:
                 log.debug('All cameras set to is_active=False')
+            finally:
                 db_conn.commit()
 
-            while self.camera_records_queue.qsize() > 0:
+            while self.camera_records_queue.qsize() > 0:                
                 record = self.camera_records_queue.get()
                 log.info('Got new record')
                 try:
@@ -421,15 +455,11 @@ class EchoServer:
                         log.error('Corrupted camera record %s: %s', record['camera_name'], error)
                 self.stream_channels[record['camera_name']] = StreamChannel(record['camera_name'])
                 db_conn.commit()
+
             cur.close()
             db_conn.close()
             log.info('No more new records')
-            if self.DEBUG:
-                self.test_queue.put('Records saved')
-        
-        if self.DEBUG and not db_conn:
-            self.test_queue.put('DB connection failed')
-    
+
     @new_thread
     def ehandler_video_response(self, request):        
         log_name = f'Receive Video:{request.video_name}'
@@ -492,9 +522,6 @@ class EchoServer:
         else:
             log.error('Failed to connect to DB')
 
-        if self.DEBUG:
-            self.test_queue.put('handler worked')
-
     def ihandler_aprove_user_request(self, request):
         request.connection.close()
         self.signal_queue.put(request)
@@ -508,19 +535,19 @@ class EchoServer:
         log = logging.getLogger('Video Manager')
         log.info('Thread started')
         video_requesters = {}
-
-        while True:
+        self.run_video_manager()
+        while self.video_manager_running():
             while self.video_requesters_queue.qsize() > 0:
                 requester = self.video_requesters_queue.get()
-                log.info('get video requester %s', requester.request.video_name)
-                if requester.request.video_name in video_requesters:
-                    video_requesters[requester.request.video_name].append(requester)
+                log.info('get video requester %s', requester.video_name)
+                if requester.video_name in video_requesters:
+                    video_requesters[requester.video_name].append(requester)
                 else:
                     video_request_time = datetime.datetime.now(tz=self.timezone)
-                    video_requesters[requester.request.video_name] = [video_request_time, requester]
+                    video_requesters[requester.video_name] = [video_request_time, requester]
                     log.info('put video request to queue')
                     self.signal_queue.put(ServerRequest(request_type='video',
-                                                        video_name=requester.request.video_name))
+                                                        video_name=requester.video_name))
 
             while self.video_response_queue.qsize() > 0:
                 video_response = self.video_response_queue.get()
@@ -543,8 +570,9 @@ class EchoServer:
                                                                 request_result='failure',
                                                                 video_name=item))
 
-        if self.DEBUG:
-            self.test_queue.put('work done')
+    def flush_signal_queue(self):
+        while self.signal_queue.qsize() > 0:
+            signal = self.signal_queue.get()
 
     @new_thread
     def check_connection(self, log, conn, signal=None):
