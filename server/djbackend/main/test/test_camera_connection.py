@@ -651,12 +651,18 @@ class TestVideoManager(TestCase):
         cls.request_1 = ServerRequest(request_type='video',
                                       video_name='20-01-2023T14:23:41',
                                       connection=Mock())
-        cls.request_2 = ServerRequest(request_type='video',
+        cls.request_1_1 = ServerRequest(request_type='video',
                                       video_name='20-01-2023T14:23:41',
+                                      connection=Mock())
+        cls.request_2 = ServerRequest(request_type='video',
+                                      video_name='10-01-2023T14:23:41',
                                       connection=Mock())
         cls.response_success = ServerRequest(request_type='video',
                                             request_result='success',
                                             video_name='20-01-2023T14:23:41')
+        cls.response_success_2 = ServerRequest(request_type='video',
+                                            request_result='success',
+                                            video_name='10-01-2023T14:23:41')
         cls.response_failure = ServerRequest(request_type='video',
                                             request_result='failure',
                                             video_name='20-01-2023T14:23:41')
@@ -672,17 +678,15 @@ class TestVideoManager(TestCase):
         self.test_object.video_requesters_queue.put(self.request_1)
         self.test_object.video_response_queue.put(self.response_success)
         thread = self.test_object.video_manager()
-        self.test_object.kill_video_manager()
         thread.join()
         msg = 'success'
         self.request_1.connection.send.assert_called_with(msg.encode())
 
     def test_multiple_same_video_requests(self):
         self.test_object.video_requesters_queue.put(self.request_1)
-        self.test_object.video_requesters_queue.put(self.request_2)
+        self.test_object.video_requesters_queue.put(self.request_1_1)
         self.test_object.video_response_queue.put(self.response_success)
         thread = self.test_object.video_manager()
-        self.test_object.kill_video_manager()
         thread.join()
         signals = []
         while self.test_object.signal_queue.qsize() > 0:
@@ -691,52 +695,35 @@ class TestVideoManager(TestCase):
         self.assertEqual(1, len(signals))
         msg = 'success'
         self.request_1.connection.send.assert_called_with(msg.encode())
-        self.request_2.connection.send.assert_called_with(msg.encode())
+        self.request_1_1.connection.send.assert_called_with(msg.encode())
 
     def test_failure(self):
         self.test_object.video_requesters_queue.put(self.request_1)
         self.test_object.video_response_queue.put(self.response_failure)
         thread = self.test_object.video_manager()
-        self.test_object.kill_video_manager()
         thread.join()
         msg = 'failure'
         self.request_1.connection.send.assert_called_with(msg.encode())
-    """
+
     def test_request_live_time(self):
         self.test_object.video_request_timeout = 1
-        mock_socket = Mock()
-        self.test_object.video_requesters_queue.put(SocketConn(mock_socket, 
-                                                               self.address, 
-                                                               request=ServerRequest(request_type='video',
-                                                                                     video_name='20-01-2023T14:23:41')))
-        self.test_object.video_manager()
-        response = self.test_object.test_queue.get()
+        self.test_object.video_requesters_queue.put(self.request_1)
+        thread = self.test_object.video_manager()
+        thread.join()
         msg = 'failure'
-        mock_socket.send.assert_called_once_with(msg.encode())
+        self.request_1.connection.send.assert_called_with(msg.encode())
 
     def test_multiple_video_requests(self):
-        mock_socket_1 = Mock()
-        mock_socket_2 = Mock()
-        self.test_object.video_requesters_queue.put(SocketConn(mock_socket_1, 
-                                                               self.address, 
-                                                               request=ServerRequest(request_type='video',
-                                                                                     video_name='20-01-2023T14:23:41')))
-        self.test_object.video_requesters_queue.put(SocketConn(mock_socket_2, 
-                                                               self.address, 
-                                                               request=ServerRequest(request_type='video',
-                                                                                     video_name='01-01-2023T14:23:41')))
-        self.test_object.video_response_queue.put(ServerRequest(request_type='video',
-                                                                request_result='success',
-                                                                video_name='20-01-2023T14:23:41'))
-        self.test_object.video_response_queue.put(ServerRequest(request_type='video',
-                                                                request_result='success',
-                                                                video_name='01-01-2023T14:23:41'))
-        self.test_object.video_manager()
-        response = self.test_object.test_queue.get()
+        self.test_object.video_requesters_queue.put(self.request_1)
+        self.test_object.video_requesters_queue.put(self.request_2)
+        self.test_object.video_response_queue.put(self.response_success)
+        self.test_object.video_response_queue.put(self.response_success_2)
+        thread = self.test_object.video_manager()
+        thread.join()
         msg = 'success'
-        mock_socket_1.send.assert_called_once_with(msg.encode())
-        mock_socket_2.send.assert_called_once_with(msg.encode())
-"""
+        self.request_1.connection.send.assert_called_with(msg.encode())
+        self.request_2.connection.send.assert_called_with(msg.encode())
+
 
 class TestCheckConnection(TestCase):
 

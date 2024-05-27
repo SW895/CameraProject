@@ -544,6 +544,7 @@ class EchoServer:
                     video_requesters[requester.video_name].append(requester)
                 else:
                     video_request_time = datetime.datetime.now(tz=self.timezone)
+                    log.info('VIDEO NAME:%s', requester.video_name)
                     video_requesters[requester.video_name] = [video_request_time, requester]
                     log.info('put video request to queue')
                     self.signal_queue.put(ServerRequest(request_type='video',
@@ -553,10 +554,11 @@ class EchoServer:
                 video_response = self.video_response_queue.get()
                 log.info('Get video response from queue')
 
+                log.info('KEYS: %s', video_requesters.keys())
                 for requester in video_requesters[video_response.video_name][1:]:            
                     requester.connection.send(video_response.request_result.encode())
                     requester.connection.close()
-                    
+                    log.info('RESPONSE NAME: %s', video_response.video_name)
                 del video_requesters[video_response.video_name]
 
             if not video_requesters:
