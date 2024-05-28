@@ -160,7 +160,6 @@ class StreamChannel:
             self.stream_source.connection.close()
         else:
             while self.consumer_queue.qsize() > 0:
-                log.info('Get new consumer')
                 consumer_list.append(self.consumer_queue.get())
 
         if consumer_list:
