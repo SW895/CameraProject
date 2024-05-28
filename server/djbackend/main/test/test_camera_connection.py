@@ -1,10 +1,10 @@
-import socket
 import json
 import threading
 import sys
 import datetime
 import os
 import pytz
+import time
 from django.test import TestCase
 from unittest.mock import Mock, patch
 from types import FunctionType
@@ -437,7 +437,7 @@ class TestSaveRecord(TestCase):
         records = ArchiveVideo.objects.all()
         self.assertEqual(len(records), 2)
 
-import logging
+
 class TestSaveOrUpdateCamera(TestCase):
 
     @classmethod
@@ -728,145 +728,185 @@ class TestVideoManager(TestCase):
 class TestCheckConnection(TestCase):
 
     @classmethod
-    def setUp(cls):  
-        cls.test_object = EchoServer('127.0.0.1', 20900, '127.0.0.1', 10900)
+    def setUpClass(cls):  
+        cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
         cls.test_object.DEBUG = True
-        cls.address = '127.0.0.1'
         cls.log = Mock()
         cls.mock_socket = Mock()
         cls.signal = 'Restart'
         cls.mock_socket.recv= b""
         cls.result = ServerRequest(request_type=cls.signal)
     
+    @classmethod
+    def tearDownClass(cls):
+        pass
+    
     def test_break_connection(self):        
-        self.test_object.check_connection(self.log, self.mock_socket)
-        response = self.test_object.test_queue.get()
-        self.mock_socket.close.assert_called_once()
+        thread = self.test_object.check_connection(self.log, self.mock_socket)
+        thread.join()
+        self.log.warning.assert_called_with('Connection lost')
 
     def test_push_signal(self):
-        self.test_object.check_connection(self.log, self.mock_socket, self.signal)
-        response = self.test_object.test_queue.get()
+        thread = self.test_object.check_connection(self.log, self.mock_socket, self.signal)
+        thread.join()
         test_signal = self.test_object.signal_queue.get()
-        self.mock_socket.close.assert_called_once()
         self.assertEqual(self.result.request_type, test_signal.request_type)
 
 
-
-
-
-
-
-
 class TestHandlerStreamSource(TestCase):
-
-    @classmethod
-    def setUp(cls):       
-        cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
-        cls.test_object.DEBUG = True
-        cls.connection = Mock()
-        cls.address = '127.0.0.1'
     
-    def test_stream_source_queue(self):
-        self.test_object.ehandler_stream_source({}, self.connection, self.address)
-        response = self.test_object.stream_queue.get()
-        self.assertEqual(response.connection, self.sock.connection)
-#"""
-class TestHandlerStreamRequest(TestCase):
-
     @classmethod
-    def setUpClass(cls):  
+    def setUpClass(cls):
         cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
         cls.test_object.DEBUG = True
-        cls.mock_socket = Mock()
-        cls.address = '127.0.0.1'
-        cls.request = ServerRequest(request_type='stream_request')
-        cls.test_object.restream_video = Mock()
+        cls.request = ServerRequest(request_type='stream',
+                                    camera_name='test')
     
     @classmethod
     def tearDownClass(cls):
         pass
     
-    def test_push_stream_request_to_queue(self):
-        self.test_object.ihandler_stream_request(self.request, self.mock_socket, self.address)
-        response = self.test_object.stream_requesters_queue.get()
-        self.assertEqual(self.sock.connection, response.connection)
+    def test_put_new_source_to_queue(self):
+        self.test_object.ehandler_stream_source(self.request)
+        response = self.test_object.external_stream_responses.get()
+        self.assertEqual(self.request, response)
 
-    def test_restream_video_called(self):
-        self.test_object.ihandler_stream_request(self.request, self.mock_socket, self.address)
-        response = self.test_object.stream_requesters_queue.get()
-        self.test_object.restream_video.assert_called()
 
-class TestRestreamVideo(TestCase):
+class TestHandlerStreamRequest(TestCase):
 
     @classmethod
-    def setUp(cls):  
+    def setUpClass(cls):
         cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
         cls.test_object.DEBUG = True
-        cls.test_object.stream_q_timeout = 0.1
-        cls.mock_socket = Mock()
-        cls.address = '127.0.0.1'
+        cls.test_object.videostream_manager = Mock()
+        cls.request = ServerRequest(request_type='stream',
+                                    camera_name='test')
+    
+    @classmethod
+    def tearDownClass(cls):
+        pass
+    
+    def test_put_new_request_to_queue(self):
+        self.test_object.ihandler_stream_request(self.request)
+        response = self.test_object.internal_stream_requests.get()
+        self.assertEqual(self.request, response)
+    
+    def test_videostream_manager_called(self):
+        self.test_object.ihandler_stream_request(self.request)
+        self.test_object.videostream_manager.assert_called()
 
-    def test_push_signal_to_start_stream(self):        
-        self.test_object.restream_video()
-        response = self.test_object.signal_queue.get()
-        self.assertEqual('stream', response.request_type)
 
-    @patch('camera_conn.recv_package')
-    def test_get_stream_source_connection(self, recv_package):
-        recv_package.return_value = None, None, None, True
-        self.test_object.stream_queue.put(SocketConn(self.mock_socket, self.address))
-        self.test_object.restream_video()
-        thread_ended = self.test_object.test_queue.get()
-        response = self.test_object.signal_queue.get()
-        response = self.test_object.signal_queue.get()
-        recv_package.assert_called_once()
-        self.assertEqual('restart stream', response.request_type)        
+class TestVideoStreamManager(TestCase):
 
-    def test_failed_stream_source_connection(self):
-        self.test_object.restream_video()
-        thread_ended = self.test_object.test_queue.get()
-        response = self.test_object.signal_queue.get()
-        self.assertEqual('stream', response.request_type)
-        response_fail = self.test_object.signal_queue.get()
-        self.assertEqual('restart stream', response_fail.request_type)
+    @classmethod
+    def setUpClass(cls):
+        cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
+        cls.test_object.DEBUG = True
+        cls.camera_name = 'test_cam'
+        cls.test_object.stream_channels = {cls.camera_name:StreamChannel(cls.camera_name)}
+        cls.request = ServerRequest(request_type='stream',
+                                    camera_name=cls.camera_name)
+        cls.response = ServerRequest(request_type='stream',
+                                    camera_name=cls.camera_name)
+        cls.test_object.stream_channels[cls.camera_name].run_thread = Mock()
+        cls.test_object.stream_channels[cls.camera_name].kill_thread = Mock()
+
+    @classmethod
+    def tearDownClass(cls):
+        pass
+
+    def tearDown(self):
+        self.test_object.stream_channels[self.camera_name].kill_thread.reset_mock()
+        self.test_object.stream_channels[self.camera_name].run_thread.reset_mock()
+        self.test_object.stream_channels[self.camera_name].void_consumers()
+
+    def test_put_new_consumer_to_proper_stream_channel(self):
+        self.test_object.internal_stream_requests.put(self.request)
+        thread = self.test_object.videostream_manager()
+        thread.join()
+        response = self.test_object.stream_channels[self.camera_name].consumer_queue.get()
+        self.assertEqual(response, self.request)
+        self.assertEqual(self.test_object.stream_channels[self.camera_name].consumer_number(),1)
+
+    def test_put_new_source_to_proper_stream_channel(self):
+        self.test_object.external_stream_responses.put(self.response)
+        thread = self.test_object.videostream_manager()
+        self.test_object.stream_channels[self.camera_name].wait_source_connection()
+        thread.join()
+        response = self.test_object.stream_channels[self.camera_name].stream_source        
+        self.assertEqual(response, self.response)
         
-    @patch('camera_conn.recv_package')
-    def test_empty_requester_list(self, recv_package):
-        self.test_object.stream_queue.put(SocketConn(self.mock_socket, self.address))
-        recv_package.return_value = self.mock_socket, bytes(10), bytes(1), False
-        self.test_object.restream_video()
-        thread_ended = self.test_object.test_queue.get()
-        response = self.test_object.signal_queue.get()
-        self.assertEqual('stream', response.request_type)
-        response = self.test_object.signal_queue.get()
-        recv_package.assert_called_once()
-        self.assertEqual('stop', response.request_type)
+    def test_start_thread_if_no_consumers(self):
+        self.test_object.stream_channels[self.camera_name].void_consumers()
+        self.test_object.internal_stream_requests.put(self.request)
+        thread = self.test_object.videostream_manager()
+        thread.join()
+        self.test_object.stream_channels[self.camera_name].kill_thread.assert_called()
+        self.test_object.stream_channels[self.camera_name].run_thread.assert_called()
 
-    @patch('camera_conn.recv_package')
-    def test_one_requester(self, recv_package):
-        self.test_object.stream_queue.put(SocketConn(self.mock_socket, self.address))
-        recv_package.return_value = self.mock_socket, bytes(10), bytes(1), False
-        requester_1 = SocketConn(Mock(name='requester_1'), self.address)
-        self.test_object.stream_requesters_queue.put(requester_1)
-        self.test_object.restream_video()
-        thread_ended = self.test_object.test_queue.get()
-        response = self.test_object.signal_queue.get()
-        self.assertEqual('stream', response.request_type)
-        recv_package.assert_called_once()
-        requester_1.connection.send.assert_called_once()
+    def test_not_starting_thread_if_any_consumers(self):        
+        self.test_object.internal_stream_requests.put(self.request)
+        self.test_object.stream_channels[self.camera_name].add_consumer()
+        thread = self.test_object.videostream_manager()
+        thread.join()
+        self.test_object.stream_channels[self.camera_name].kill_thread.assert_not_called()
+        self.test_object.stream_channels[self.camera_name].run_thread.assert_not_called()
 
-    @patch('camera_conn.recv_package')
-    def test_multiple_requesters(self, recv_package):
-        self.test_object.stream_queue.put(SocketConn(self.mock_socket, self.address))
-        recv_package.return_value = self.mock_socket, bytes(10), bytes(1), False
-        requester_1 = SocketConn(Mock(name='requester_1'), self.address)
-        requester_2 = SocketConn(Mock(name='requester_2'), self.address)
-        self.test_object.stream_requesters_queue.put(requester_1)
-        self.test_object.stream_requesters_queue.put(requester_2)
-        self.test_object.restream_video()
-        thread_ended = self.test_object.test_queue.get()
-        response = self.test_object.signal_queue.get()
-        self.assertEqual('stream', response.request_type)
-        recv_package.assert_called_once()
-        requester_1.connection.send.assert_called_once()
-        requester_2.connection.send.assert_called_once()
+
+class TestStreamChannel(TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        cls.camera_name = 'test'
+        cls.test_object = StreamChannel(cls.camera_name)
+        cls.test_object.source_connected()
+        cls.stream_source = ServerRequest(request_type='stream',
+                                          camera_name=cls.camera_name,
+                                          connection=Mock())
+        cls.stream_source.connection.recv.return_value = b"100"
+        cls.consumer_1 = ServerRequest(request_type='stream',
+                                     camera_name=cls.camera_name,
+                                     connection=Mock())
+        cls.consumer_2 = ServerRequest(request_type='stream',
+                                     camera_name=cls.camera_name,
+                                     connection=Mock())
+    
+    @classmethod
+    def tearDownClass(cls):
+        pass
+    
+    def setUp(self):
+        self.test_object.source_connected()
+        self.test_object.stream_source = self.stream_source
+        self.test_object.consumer_queue.put(self.consumer_1)
+        self.test_object.add_consumer()
+
+    def test_send_data_to_consumer(self):
+        self.test_object.run_thread()
+        time.sleep(0.5)
+        self.test_object.kill_thread()
+        self.consumer_1.connection.send.assert_called_with(b'100')
+
+    def test_send_data_to_multiple_consumers(self):
+        self.test_object.consumer_queue.put(self.consumer_2)
+        self.test_object.add_consumer()
+        self.test_object.run_thread()
+        time.sleep(0.5)
+        self.test_object.kill_thread()
+        self.consumer_1.connection.send.assert_called_with(b'100')
+        self.consumer_2.connection.send.assert_called_with(b'100')
+
+    def test_close_connection_if_no_source(self):
+        self.test_object.stream_source = None
+        self.test_object.source_connection_timeout = 1
+        self.test_object.source_disconnected()
+        self.test_object.run_thread()
+        time.sleep(1.2)
+        self.consumer_1.connection.close.assert_called()
+    
+    def test_remove_consumer_if_disconnected(self):
+        self.consumer_1.connection.send.side_effect = OSError
+        self.test_object.run_thread()
+        time.sleep(0.5)
+        self.consumer_1.connection.close.assert_called()
+        self.assertEqual(self.test_object.consumer_number(), 0)

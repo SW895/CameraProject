@@ -59,8 +59,7 @@ class ServerRequest:
             (self.connection == other.connection) and \
             (self.address == other.address):
             return True
-        else:
-            return False
+        return False
 
 
 class StreamChannel:
@@ -78,6 +77,23 @@ class StreamChannel:
         self.source_connection_timeout = 5
         self.camera_name = camera_name
 
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        del state['consumer_queue'],
+        del state['_mutex'],
+        del state['_thread_working'],
+        del state['_thread_dead'],
+        del state['_source_connected'],
+        return state
+
+    def __setstate__(self, state):        
+        self.__dict__.update(state)
+        self.consumer_queue = queue.Queue()
+        self._mutex = threading.Lock()
+        self._thread_working = threading.Event()
+        self._thread_dead = threading.Event()
+        self._source_connected = threading.Event()
+    
     def thread_dead(self):
         self._thread_dead.set()
 
@@ -127,7 +143,7 @@ class StreamChannel:
             while self.thread_working() and (self.consumer_number() > 0):            
                 while self.consumer_queue.qsize() > 0:
                     log.info('Get new consumer')
-                    consumer_list.append(self.consumer_queue.get())       
+                    consumer_list.append(self.consumer_queue.get())
                 if consumer_list:
                     data = self.stream_source.connection.recv(1048576)
                     if data == b"":
@@ -142,6 +158,10 @@ class StreamChannel:
                             consumer_list.remove(consumer)
                             self.remove_consumer()
             self.stream_source.connection.close()
+        else:
+            while self.consumer_queue.qsize() > 0:
+                log.info('Get new consumer')
+                consumer_list.append(self.consumer_queue.get())
 
         if consumer_list:
             for consumer in consumer_list:
@@ -536,6 +556,7 @@ class EchoServer:
         log.info('Thread started')
         video_requesters = {}
         self.run_video_manager()
+
         while self.video_manager_running():
             while self.video_requesters_queue.qsize() > 0:
                 requester = self.video_requesters_queue.get()
@@ -589,8 +610,6 @@ class EchoServer:
         log.warning('Connection lost')
         if signal != None:
             self.signal_queue.put(ServerRequest(request_type=signal))
-        if self.DEBUG:
-            self.test_queue.put('connection failed')
 
     def ehandler_stream_source(self, request):
         self.external_stream_responses.put(request)
@@ -607,8 +626,8 @@ class EchoServer:
     def videostream_manager(self):
         log = logging.getLogger('VideoStream Manager')
         log.debug('Managger started')
-
-        while True:
+        self.run_videostream_manager()
+        while self.videostream_manager_running():
             if self.internal_stream_requests.qsize() == 0 and self.external_stream_responses.qsize() == 0:                
                 with self.stream_requests:
                     self.stream_requests.wait()
@@ -637,6 +656,9 @@ class EchoServer:
                 current_stream_channel = self.stream_channels[stream_source.camera_name]                                   
                 current_stream_channel.stream_source = stream_source
                 current_stream_channel.source_connected()
+            
+            if self.DEBUG:
+                break
 
 
 if __name__ == "__main__":
