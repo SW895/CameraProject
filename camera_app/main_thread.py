@@ -16,7 +16,7 @@ import base64
 import threading
 from itertools import cycle
 from pathlib import Path
-from utils import check_thread
+from utils import check_thread, new_thread
 from ultralytics import YOLO
 from datetime import date, datetime
 from email.mime.text import MIMEText
@@ -28,22 +28,13 @@ logging.basicConfig(level=logging.DEBUG,
                     datefmt="%Y-%m-%dT%H:%M:%S",
                     )
 
-def new_thread(target_function):
-
-    def inner(*args, **kwargs):
-
-        thread = threading.Thread(target=target_function, args=args, kwargs=kwargs)
-        thread.start()
-
-    return inner
-
 
 class ClientRequest:
 
-    def __init__(self, request_type, 
-                 video_name=None, 
-                 video_size=None, 
-                 username=None, 
+    def __init__(self, request_type,
+                 video_name=None,
+                 video_size=None,
+                 username=None,
                  email=None,
                  request_result=None,
                  db_record=None,
@@ -73,10 +64,11 @@ class ClientRequest:
             (self.email == other.email) and \
             (self.request_result == other.request_result) and \
             (self.db_record == other.db_record) and \
-            (self.camera_name == other.camera_name):
+            (self.camera_name == other.camera_name) and \
+            (self.connection == other.connection) and \
+            (self.address == other.address):
             return True
-        else:
-            return False
+        return False
 
 
 class CameraSource:
@@ -234,6 +226,8 @@ class CameraClient:
         self.server_port = int(config['DEFAULT']['SERVER_PORT'])
         self.handlers = self.get_handlers()
         self.buff_size = 4096
+        self.base_dir = Path(__file__).resolve().parent.parent
+        self.save_path = self.base_dir / 'video_archive/'
         self.user_list = config['USER_LIST']['USER_LIST'].split(' ')
         self.email_user = config['EMAIL']['EMAIL_USER']
         self.email_password = config['EMAIL']['EMAIL_PASSWORD']
@@ -242,6 +236,7 @@ class CameraClient:
         self.timezone = pytz.timezone('Europe/Moscow')
         self.APROVE_ALL = bool(config['USER_LIST']['APROVE_ALL'])
         self.camera_sources = {}
+        self._videostream_manager = threading.Event()
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -252,6 +247,15 @@ class CameraClient:
         self.stream_request_queue = queue.Queue()
         self.__dict__.update(state)
 
+    def run_videostream_manager(self):
+        self._videostream_manager.clear()
+    
+    def kill_videostream_manager(self):
+        self._videostream_manager.set()
+
+    def videostream_manager_running(self):
+        return not self._videostream_manager.is_set()
+    
     def get_handlers(self):
         handler_list = [method for method in CameraClient.__dict__ 
                        if callable(getattr(CameraClient, method)) 
@@ -331,15 +335,11 @@ class CameraClient:
                             if request.request_type in self.handlers.keys():
                                 log.info('Calling handler: %s', request.request_type)
                                 self.handlers[request.request_type](self, request)
-                                request = None
-                            else:                                
-                                if self.DEBUG:
-                                    self.test_queue.put('Wrong request')
+                            request = None
                         log.info('No new messages')
                         if self.DEBUG:
                                 break
                 if self.DEBUG:
-                    self.test_queue.put('Handler called')
                     break
 
     def handler_corrupted_record(self, request):
@@ -347,11 +347,6 @@ class CameraClient:
         with open('db.json', 'a') as outfile:
             outfile.write(request.db_record + '\n')
         log.info('Records saved')
-        if self.DEBUG:
-            self.test_queue.put('Records saved')
-    
-    def handler_restart_stream(self, request):
-        self.handler_stream(request)
 
     @new_thread
     def handler_aprove_user_request(self, request):
@@ -374,9 +369,6 @@ class CameraClient:
             self.send_email(username, email, False)
         sock = self.get_connection(request, 1)
         sock.close()
-
-        if self.DEBUG:
-            self.test_queue.put('thread worked')
 
     def send_email(self, username, email, result):
         message = MIMEMultipart('alternative')
@@ -443,11 +435,8 @@ class CameraClient:
                                            video_name=request.video_name,
                                            video_size=0), 1)
             log.error('No such video %s', request.video_name)
-            self.test_queue.put('no such video')
         sock.close()
         log.info('Thread ended')
-        if self.DEBUG:
-            self.test_queue.put('video sended')
 
     def run_client(self):
         self.get_camera_sources()
@@ -464,7 +453,10 @@ class CameraClient:
             #self.camera_sources[camera].camera_thread()
 
         if sock:
-            sock.send(records.encode())
+            try:
+                sock.send(records.encode())
+            except:
+                pass
             sock.close()
 
     def handler_stream(self, request):
@@ -483,7 +475,7 @@ class CameraClient:
     @check_thread
     def videostream_manager(self):
         self.replicator()
-        while True:
+        while self.videostream_manager_running():
             requester = self.stream_request_queue.get()
             current_stream_source = self.camera_sources[requester.camera_name]
             logging.info('KILLING THREAD')
@@ -535,7 +527,3 @@ if __name__ == '__main__':
     client.run_client()
     test1 = TestCamera()
     test1.camera_thread()
-    
-
-
-

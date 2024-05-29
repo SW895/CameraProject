@@ -1,4 +1,5 @@
 import threading
+import logging
 
 
 def check_thread(target_function):
@@ -8,16 +9,26 @@ def check_thread(target_function):
         thread_running = False
 
         for th in threading.enumerate():
-            if th.name == args[0]:
+            if th.name == target_function.__name__:
                 thread_running = True
                 break
 
         if not thread_running :
-            thread = threading.Thread(target=target_function, args=args, name=args[0])
-            thread.start()               
+            logging.info('Starting thread %s', target_function.__name__)                
+            thread = threading.Thread(target=target_function, args=args, name=target_function.__name__)
+            thread.start()
+            return thread
         else:
-            pass
+            logging.warning('Thread %s already running', target_function.__name__)  
 
-        return None
     return inner
 
+def new_thread(target_function):
+
+    def inner(*args, **kwargs):
+
+        thread = threading.Thread(target=target_function, args=args, kwargs=kwargs)
+        thread.start()
+        return thread
+
+    return inner

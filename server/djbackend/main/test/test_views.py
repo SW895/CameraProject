@@ -57,8 +57,9 @@ class TestStreamView(TestCase):
                                              password=cls.test_password,
                                              is_active=True,)
         test_user.save()
-        cls.active_camera_id = Camera.objects.create(camera_name='active', is_active=True).pk
-        cls.non_active_camera = Camera.objects.create(camera_name='non_active', is_active=False)
+        cls.active_camera_id = 'active'
+        Camera.objects.create(camera_name='active', is_active=True)
+        Camera.objects.create(camera_name='non_active', is_active=False)
 
     def test_GET_anonymous_user(self):
         response = self.client.get(reverse('stream'))
@@ -86,7 +87,7 @@ class TestStreamView(TestCase):
     def test_proper_camera_queryset(self):
         self.client.login(username=self.test_user, password=self.test_password)
         response = self.client.get(reverse('stream'))
-        expected_camera_name = Camera.objects.get(id=self.active_camera_id)
+        expected_camera_name = Camera.objects.get(camera_name=self.active_camera_id)
         cam_list = [expected_camera_name.camera_name]
         expected_cam_list = json.dumps(cam_list)
         self.assertEqual(response.status_code, 200)

@@ -55,13 +55,14 @@ class TestCamera(TestCase):
 
     @classmethod
     def setUpTestData(cls):
-        cls.obj_id = Camera.objects.create(camera_name='test').pk
+        cls.obj_id = 'test'
+        Camera.objects.create(camera_name='test')
 
     def test_is_active_false_by_default(self):
-        camera = Camera.objects.get(id=self.obj_id)
+        camera = Camera.objects.get(camera_name=self.obj_id)
         self.assertFalse(camera.is_active)
     
     def test_string_representation(self):
-        camera = Camera.objects.get(id=self.obj_id)
+        camera = Camera.objects.get(camera_name=self.obj_id)
         expected_name = 'test'
         self.assertEqual(str(camera), expected_name)

@@ -449,7 +449,8 @@ class TestSaveOrUpdateCamera(TestCase):
     
     @classmethod
     def tearDownClass(cls):
-        pass
+        thread = cls.test_object.save_or_update_camera()
+        thread.join()
 
     @patch('camera_conn.connect_to_db')
     def test_db_connect_called(self, connect_to_db):
