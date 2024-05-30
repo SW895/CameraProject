@@ -2,10 +2,11 @@ import sys
 import configparser
 import os
 import json
+import time
 from django.test import TestCase
 from types import FunctionType
 from pathlib import Path
-from unittest.mock import Mock, MagicMock
+from unittest.mock import Mock, MagicMock, patch
 
 
 base_dir = Path(__file__).resolve().parent.parent.parent.parent.parent
@@ -93,7 +94,6 @@ class TestSignalConnection(TestCase):
         self.test_object.handlers[request_type].assert_called_once()
 
     def test_wrong_request_type(self):
-        request_type = 'aaa'
         request = '{"request_type":"aaa"}|'
         self.mock_socket.recv.return_value = request.encode()
         thread = self.test_object.signal_connection()
@@ -240,7 +240,7 @@ class TestInitCamera(TestCase):
         cls.test_object.get_connection = Mock()
         cls.mock_socket = Mock()
         cls.test_object.get_connection.return_value = cls.mock_socket
-        cls.test_object.camera_sources = {'test_camera':CameraSource('0','test_camera')}
+        cls.test_object.camera_sources = {'test_camera':CameraSource('0','test_camera', cls.test_object)}
         cls.test_object.camera_sources['test_camera'].camera_thread = Mock()
     
     @classmethod
@@ -288,7 +288,7 @@ class TestVideoStreamManager(TestCase):
     def setUpClass(cls):
         cls.test_object = CameraClient(config)
         cls.test_object.DEBUG = True
-        cls.test_object.camera_sources = {'test_camera':CameraSource('0','test_camera')}
+        cls.test_object.camera_sources = {'test_camera':CameraSource('0','test_camera', cls.test_object)}
         cls.test_object.camera_sources['test_camera'].kill_thread = Mock()
         cls.test_object.camera_sources['test_camera'].run_thread = Mock()
         cls.test_object.replicator = Mock()
@@ -306,10 +306,53 @@ class TestVideoStreamManager(TestCase):
         self.test_object.camera_sources['test_camera'].kill_thread.assert_called_once()
         self.test_object.camera_sources['test_camera'].run_thread.assert_called_once()
 
-class TestCameraThread(TestCase):
-    pass
 
 class TestVideoStream(TestCase):
+    
+    @classmethod
+    def setUpClass(cls):
+        cls.camera_name = 'test'
+        cls.test_client = CameraClient(config)
+        cls.test_client.DEBUG = True
+        cls.test_object = CameraSource(cls.camera_name,cls.camera_name, cls.test_client)
+        cls.test_object.DEBUG = True
+        cls.mock_socket = Mock()
+        cls.test_object.frame_queue = Mock()
+        cls.test_object.frame_queue.get.return_value = b'frame'
+        cls.test_object.convert_frame = Mock(return_value=b'frame')
+
+    @classmethod
+    def tearDownClass(cls):
+        pass
+
+    @patch('main_thread.CameraClient.get_connection')
+    def test_get_connection_called(self, get_connection):
+        request = ClientRequest(request_type='stream', camera_name=self.camera_name)
+        get_connection.return_value = self.mock_socket
+        self.test_object.run_thread()
+        time.sleep(0.5)
+        self.test_object.kill_thread()
+        name, args, kwargs = get_connection.mock_calls[0]
+        self.assertEqual(args, (request, 1))
+
+    @patch('main_thread.CameraClient.get_connection')
+    def test_convert_frame_called(self, get_connection):
+        get_connection.return_value = self.mock_socket
+        self.test_object.run_thread()
+        time.sleep(0.5)
+        self.test_object.kill_thread()
+        self.test_object.convert_frame.assert_called()
+
+    @patch('main_thread.CameraClient.get_connection')
+    def test_send_data(self, get_connection):
+        get_connection.return_value = self.mock_socket
+        self.test_object.run_thread()
+        time.sleep(0.5)
+        self.test_object.kill_thread()
+        self.mock_socket.sendall.assert_called()
+
+
+class TestCameraThread(TestCase):
     pass
 
 class TestSaveVideo(TestCase):

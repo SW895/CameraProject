@@ -73,7 +73,7 @@ class ClientRequest:
 
 class CameraSource:
 
-    def __init__(self, camera_source, camera_name):
+    def __init__(self, camera_source, camera_name, client):
         self.camera_source = camera_source
         self.camera_name = camera_name
         self.model = None
@@ -86,15 +86,20 @@ class CameraSource:
         self._thread_working.set()
         self._thread_dead = threading.Event()
         self._thread_dead.set()
+        self.client = client
     
     def __getstate__(self):
         state = self.__dict__.copy()
         del state['frame_queue']
+        del state['_thread_working']
+        del state['_thread_dead']
         return state
 
     def __setstate__(self, state):
         self.__dict__.update(state)
         self.frame_queue = queue.Queue(maxsize=1)
+        self._thread_working = threading.Event()
+        self._thread_dead = threading.Event()
     
     def thread_dead(self):
         self._thread_dead.set()
@@ -148,7 +153,7 @@ class CameraSource:
         log.info('Thread started')
         request = ClientRequest(request_type='stream_source', camera_name=self.camera_name)
         log.debug('Connecting to server')
-        stream_sock = client.get_connection(request, 1)
+        stream_sock = self.client.get_connection(request, 1)
 
         if stream_sock:
             log.debug('Connected to server. Stream begin')
@@ -241,10 +246,12 @@ class CameraClient:
     def __getstate__(self):
         state = self.__dict__.copy()
         del state['stream_request_queue']
+        del state['_videostream_manager']
         return state
 
     def __setstate__(self, state):
         self.stream_request_queue = queue.Queue()
+        self._videostream_manager = threading.Event()
         self.__dict__.update(state)
 
     def run_videostream_manager(self):
@@ -470,7 +477,7 @@ class CameraClient:
         camera_list = [(0, 'aaa'),(0, 'bbb'),(0, 'ccc'),(0, 'ddd'),(0, 'eee'),(0, 'fff'),(0, 'ggg'),(0, 'hhh'),(0, 'iii'),(0, 'kkk'),(0, 'lll'),(0, 'mmm')]
         #camera_list = [(0,'111'), (0, '222')]
         for camera in camera_list:
-            self.camera_sources[camera[1]] = CameraSource(camera[0], camera[1])
+            self.camera_sources[camera[1]] = CameraSource(camera[0], camera[1], self)
 
     @check_thread
     def videostream_manager(self):
