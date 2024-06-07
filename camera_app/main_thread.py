@@ -77,20 +77,30 @@ class CameraSource:
         self.camera_source = camera_source
         self.camera_name = camera_name
         self.model = None
-        self.frames_to_save = []
         self.base_dir = Path(__file__).resolve().parent.parent
         self.model_path = self.base_dir / 'camera_app/weights/test_weights.pt'
-        self.save_path = self.base_dir / 'video_archive/'
-        self.frame_queue = queue.Queue(maxsize=1)        
+        path = 'video_archive/' + self.camera_name + '/'
+        self.save_path = self.base_dir / path
+        self.frame_queue = queue.Queue(maxsize=1)
+        self.buff_size = 100
         self._thread_working = threading.Event()
         self._thread_working.set()
         self._thread_dead = threading.Event()
         self._thread_dead.set()
         self.client = client
+        self._detection = {'car_det':False, 'cat_det':False, 'chiken_det':False, 'human_det':False}
+        self._counter = 0
+        self.no_detection_time = 100
+        self._obj_detected = False
+        self.timezone = pytz.timezone('Europe/Moscow')
+
+        if not os.path.isdir(self.save_path):
+            os.mkdir(self.save_path)
     
     def __getstate__(self):
         state = self.__dict__.copy()
         del state['frame_queue']
+        del state['save_queue']
         del state['_thread_working']
         del state['_thread_dead']
         return state
@@ -118,34 +128,63 @@ class CameraSource:
 
     def get_model(self):
         self.model = YOLO(self.model_path)
+    
+    def update_detection(self, results):
+        for r in results:
+            for c in r.boxes.cls:
+                if not self._detection[self.model.names[int(c)]]:
+                    self._detection[self.model.names[int(c)]] = True
+
+    def reset_detection_and_counter(self):
+        self._detection = {'car_det':False, 'cat_det':False, 'chiken_det':False, 'human_det':False}
+        self._counter = 0
+        self._obj_detected = False
 
     @new_thread
     def camera_thread(self):
         logging.info('CAMERA SOURCE %s', self.camera_source)
+        log = logging.getLogger(self.camera_name)
         cap = cv2.VideoCapture(self.camera_source)
-        while cap.isOpened():
-            success, frame = cap.read()
+        self.get_model()
+        frames_to_save = []
+        if self.model:
+            log.debug('Get model')
+            while cap.isOpened():
+                success, frame = cap.read()
 
-            if success:                
-                if self.DETECTION:
-                    results = self.model(frame,conf=0.5)
-                    annotated_frame = results[0].plot()  
+                if success:
+                    results = self.model(frame, conf=0.0001)
+                    if results[0]:
+                        self.update_detection(results)
+                        self._obj_detected = True
+                        self._counter = 0
+                        log.debug('%s', self._detection)
+                    elif self._obj_detected:
+                        self._counter += 1
+                
+                    if self._counter >= self.no_detection_time:
+                        log.debug('Reset counter and detection dict')
+                        self.reset_detection_and_counter()
+                                    
+                    if self._obj_detected and (len(frames_to_save) < self.buff_size):
+                        frames_to_save.append(frame)
+                    elif self._obj_detected:
+                        log.debug('Save video')
+                        self.save_video(frames_to_save, self._detection)
+                        self.reset_detection_and_counter()
+                        frames_to_save = []
+
+                    if self.frame_queue.qsize() == 0:
+                        self.frame_queue.put(frame)
+                
+                    cv2.imshow("YOLOv8 Inference", frame)
+                    if cv2.waitKey(1) & 0xFF == ord("q"):
+                        break
                 else:
-                    annotated_frame = frame
-
-                if self.frame_queue.qsize() == 0:
-                        self.frame_queue.put(annotated_frame)
-            
-                cv2.imshow("YOLOv8 Inference", annotated_frame)
-
-                # TODO save video if object detected
-                if cv2.waitKey(1) & 0xFF == ord("q"):
                     break
-            else:
-                break  
 
-        cap.release()
-        cv2.destroyAllWindows()
+            cap.release()
+            cv2.destroyAllWindows()
     
     @new_thread
     def videostream(self):
@@ -181,14 +220,12 @@ class CameraSource:
         return message
 
     @new_thread
-    def save_video(self, frames_to_save):
-        # TODO REFACTORING
+    def save_video(self, frames_to_save, new_item):
         log = logging.getLogger('Save video')
-        log.debug('Thread started')
+        log.debug('Thread started, video length: %s, detection: %s', len(frames_to_save), new_item)
         today = date.today()
         today_save_path = self.save_path / (today.strftime("%d_%m_%Y") + '/')
-        log.debug('Save path: %s', today_save_path)
-    
+        log.debug('Save path: %s', today_save_path)    
         if not os.path.isdir(today_save_path):
             os.mkdir(today_save_path)
 
@@ -197,15 +234,9 @@ class CameraSource:
         log.debug('video name: %s', video_name)
         torchvision.io.write_video(video_name,numpy.array(frames_to_save),10)   
 
-        new_item = {}
         new_item['date_created'] = current_date.isoformat()
-        new_item['human_det'] = True
-        new_item['cat_det'] = False
-        new_item['car_det'] = False
-        new_item['chiken_det'] = False
         log.debug('new_record: %s', new_item)
-        new_record = json.dumps(new_item)   
-
+        new_record = json.dumps(new_item)
         sock = client.get_connection(ClientRequest(request_type='new_record',
                                                    db_record=new_item), 1)
 
@@ -238,7 +269,6 @@ class CameraClient:
         self.email_password = config['EMAIL']['EMAIL_PASSWORD']
         self.email_port = config['EMAIL']['EMAIL_PORT']
         self.email_backend = 'smtp.gmail.com'        
-        self.timezone = pytz.timezone('Europe/Moscow')
         self.APROVE_ALL = bool(config['USER_LIST']['APROVE_ALL'])
         self.camera_sources = {}
         self._videostream_manager = threading.Event()
@@ -457,7 +487,7 @@ class CameraClient:
         for camera in self.camera_sources.keys():
             logging.info('%s',camera)
             records += json.dumps({'camera_name':str(camera)}) + "\n"
-            #self.camera_sources[camera].camera_thread()
+            self.camera_sources[camera].camera_thread()
 
         if sock:
             try:
@@ -474,8 +504,8 @@ class CameraClient:
         # { 'camera_name(serial_number)':'camera_address'}
         # {'123456789':'rtsp://username:password@192.168.1.64/1'}
         #TODO REFACTORING
-        camera_list = [(0, 'aaa'),(0, 'bbb'),(0, 'ccc'),(0, 'ddd'),(0, 'eee'),(0, 'fff'),(0, 'ggg'),(0, 'hhh'),(0, 'iii'),(0, 'kkk'),(0, 'lll'),(0, 'mmm')]
-        #camera_list = [(0,'111'), (0, '222')]
+        #camera_list = [(0, 'aaa'),(0, 'bbb'),(0, 'ccc'),(0, 'ddd'),(0, 'eee'),(0, 'fff'),(0, 'ggg'),(0, 'hhh'),(0, 'iii'),(0, 'kkk'),(0, 'lll'),(0, 'mmm')]
+        camera_list = [(0,'222')]
         for camera in camera_list:
             self.camera_sources[camera[1]] = CameraSource(camera[0], camera[1], self)
 
@@ -490,41 +520,13 @@ class CameraClient:
             logging.info('STARTING THREAD')
             current_stream_source.run_thread()
     
-    @check_thread
-    def replicator(self):
-        while True:
-            frame = test1.frame_queue.get()
-            for camera in self.camera_sources.keys():
-                if self.camera_sources[camera].frame_queue.qsize() == 0:
-                    self.camera_sources[camera].frame_queue.put(frame)
-
-
-class TestCamera:
-
-    def __init__(self):
-        self.frame_queue = queue.Queue(maxsize=1)
-
-    @new_thread
-    def camera_thread(self):
-        cap = cv2.VideoCapture(0)
-        while cap.isOpened():
-            success, frame = cap.read()
-            if success:
-                annotated_frame = frame
-
-                if self.frame_queue.qsize() == 0:
-                        self.frame_queue.put(annotated_frame)
-            
-                cv2.imshow("YOLOv8 Inference", annotated_frame)
-
-                # TODO save video if object detected
-                if cv2.waitKey(1) & 0xFF == ord("q"):
-                    break
-            else:
-                break  
-
-        cap.release()
-        cv2.destroyAllWindows()
+    #@check_thread
+    #def replicator(self):
+    #    while True:
+    #        frame = test1.frame_queue.get()
+    #        for camera in self.camera_sources.keys():
+    #            if self.camera_sources[camera].frame_queue.qsize() == 0:
+    #                self.camera_sources[camera].frame_queue.put(frame)
 
 
 if __name__ == '__main__':
@@ -532,5 +534,3 @@ if __name__ == '__main__':
     config.read('camera.ini')
     client = CameraClient(config)
     client.run_client()
-    test1 = TestCamera()
-    test1.camera_thread()
