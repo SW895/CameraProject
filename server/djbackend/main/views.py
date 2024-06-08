@@ -69,15 +69,16 @@ class VideoDetailView(LoginRequiredMixin, generic.DetailView):
         timezone = pytz.timezone('Europe/Moscow')
         timeout = int(os.environ.get('CACHE_TIMEOUT', '60'))
         context = super(VideoDetailView, self).get_context_data(**kwargs)
-        video = ArchiveVideo.objects.get(pk=self.kwargs['pk'])
+        video = ArchiveVideo.objects.get(pk=self.kwargs['pk'])        
         video_name = localtime(video.date_created)
         video_name = video_name.strftime("%d_%m_%YT%H_%M_%S")
+        request = {'request_type':'video_request', 'video_name':(video_name + '|' + video.camera.camera_name)}
         if cache.get(video_name):
             context['video_name'] = video_name
             update_cache(video_name, timeout)
             return context
         else:
-            if self.request_video(video_name, timeout):
+            if self.request_video(request, timeout):
                 context['video_name'] = video_name
                 cache.add(video_name, True, timeout=timeout)
                 record = CachedVideo(name=video_name,
@@ -88,10 +89,9 @@ class VideoDetailView(LoginRequiredMixin, generic.DetailView):
                 context['video_name'] = None
             return context
 
-    def request_video(self, video_name, timeout=60):
+    def request_video(self, request, timeout=60):
         sock = self.connect_to_server()
-        msg = {'request_type':'video_request', 'video_name':video_name}
-        sock.send(json.dumps(msg).encode())
+        sock.send(json.dumps(request).encode())
         reply = sock.recv(1024)
         sock.close()
 

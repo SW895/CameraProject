@@ -1,6 +1,9 @@
 import threading
 import logging
-
+import socket
+import time
+import json
+from itertools import cycle
 
 def check_thread(target_function):
 
@@ -32,3 +35,45 @@ def new_thread(target_function):
         return thread
 
     return inner
+
+def get_connection(self, request, attempts_num=0):
+        log = logging.getLogger('Get connection')
+        counter = cycle([1]) if attempts_num == 0 else range(0,attempts_num)
+        log.info('Request type: %s', request.request_type)
+        for i in counter:        
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                log.info('Connecting to %s:%s', self.server_address, self.server_port)
+                sock.connect((self.server_address, self.server_port))
+            except socket.error as err:
+                log.error('Failed to connect: %s', err)
+                sock.close()  
+                time.sleep(5)          
+                continue
+            else:  
+                log.info('Successfully connected to %s:%s', self.server_address, self.server_port)          
+                try:
+                    sock.send(json.dumps(request.__dict__).encode())
+                except BrokenPipeError or ConnectionResetError:
+                    log.error('Connection broken. Reconnectiong ...')
+                    sock.close()
+                    time.sleep(5)
+                    continue
+                else:
+                    try:
+                        reply = sock.recv(self.buff_size)
+                    except OSError:
+                        sock.close()
+                        time.sleep(5)
+                        continue
+                    else:
+                        if reply.decode() == 'accepted':
+                            log.info('Connection established')
+                            return sock
+                        else:
+                            sock.close()
+                            time.sleep(5)
+                            continue
+
+        log.error('Connection failed')
+        return None

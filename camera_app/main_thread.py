@@ -16,7 +16,7 @@ import base64
 import threading
 from itertools import cycle
 from pathlib import Path
-from utils import check_thread, new_thread
+from utils import check_thread, new_thread, get_connection
 from ultralytics import YOLO
 from datetime import date, datetime
 from email.mime.text import MIMEText
@@ -73,21 +73,19 @@ class ClientRequest:
 
 class CameraSource:
 
-    def __init__(self, camera_source, camera_name, client):
+    def __init__(self, camera_source, camera_name):
         self.camera_source = camera_source
         self.camera_name = camera_name
         self.model = None
         self.base_dir = Path(__file__).resolve().parent.parent
-        self.model_path = self.base_dir / 'camera_app/weights/test_weights.pt'
-        path = 'video_archive/' + self.camera_name + '/'
-        self.save_path = self.base_dir / path
+        self.model_path = self.base_dir / 'camera_app/weights/test_weights.pt'        
+        self.save_path = self.base_dir / ('video_archive/' + self.camera_name + '/')
         self.frame_queue = queue.Queue(maxsize=1)
         self.buff_size = 100
         self._thread_working = threading.Event()
         self._thread_working.set()
         self._thread_dead = threading.Event()
         self._thread_dead.set()
-        self.client = client
         self._detection = {'car_det':False, 'cat_det':False, 'chiken_det':False, 'human_det':False}
         self._counter = 0
         self.no_detection_time = 100
@@ -192,7 +190,7 @@ class CameraSource:
         log.info('Thread started')
         request = ClientRequest(request_type='stream_source', camera_name=self.camera_name)
         log.debug('Connecting to server')
-        stream_sock = self.client.get_connection(request, 1)
+        stream_sock = get_connection(request, 1)
 
         if stream_sock:
             log.debug('Connected to server. Stream begin')
@@ -235,9 +233,10 @@ class CameraSource:
         torchvision.io.write_video(video_name,numpy.array(frames_to_save),10)   
 
         new_item['date_created'] = current_date.isoformat()
+        new_item['camera_id'] = self.camera_name
         log.debug('new_record: %s', new_item)
         new_record = json.dumps(new_item)
-        sock = client.get_connection(ClientRequest(request_type='new_record',
+        sock = get_connection(ClientRequest(request_type='new_record',
                                                    db_record=new_item), 1)
 
         if sock:
@@ -245,12 +244,12 @@ class CameraSource:
                 sock.send(new_record.encode())
             except BrokenPipeError or ConnectionResetError:
                 log.error('Failed to sent record to server')
-                sock.close()
                 with open('db.json', 'a') as outfile:
                     outfile.write(new_record + '\n')
             else:
                 log.info('Successfully send record to server')
-                sock.close()
+            sock.close()
+
 
 
 class CameraClient:
@@ -302,54 +301,12 @@ class CameraClient:
             handlers[item[8:]] = getattr(CameraClient, item)        
         return handlers
 
-    def get_connection(self, request, attempts_num=0):
-        log = logging.getLogger('Get connection')
-        counter = cycle([1]) if attempts_num == 0 else range(0,attempts_num)
-        log.info('Request type: %s', request.request_type)
-        for i in counter:        
-            try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                log.info('Connecting to %s:%s', self.server_address, self.server_port)
-                sock.connect((self.server_address, self.server_port))
-            except socket.error as err:
-                log.error('Failed to connect: %s', err)
-                sock.close()  
-                time.sleep(5)          
-                continue
-            else:  
-                log.info('Successfully connected to %s:%s', self.server_address, self.server_port)          
-                try:
-                    sock.send(json.dumps(request.__dict__).encode())
-                except BrokenPipeError or ConnectionResetError:
-                    log.error('Connection broken. Reconnectiong ...')
-                    sock.close()
-                    time.sleep(5)
-                    continue
-                else:
-                    try:
-                        reply = sock.recv(self.buff_size)
-                    except OSError:
-                        sock.close()
-                        time.sleep(5)
-                        continue
-                    else:
-                        if reply.decode() == 'accepted':
-                            log.info('Connection established')
-                            return sock
-                        else:
-                            sock.close()
-                            time.sleep(5)
-                            continue
-
-        log.error('Connection failed')
-        return None
-
     @check_thread
     def signal_connection(self):
         log = logging.getLogger('Signal connection')        
         while True:
             request = ClientRequest(request_type='signal')
-            sock = self.get_connection(request, 1)
+            sock = get_connection(request, 1)
             if sock:
                 while True:
                     log.info('Waiting for a message')
@@ -404,7 +361,7 @@ class CameraClient:
                                     request_result='denied')
             log.info('%s denied', username)              
             self.send_email(username, email, False)
-        sock = self.get_connection(request, 1)
+        sock = get_connection(request, 1)
         sock.close()
 
     def send_email(self, username, email, result):
@@ -457,21 +414,25 @@ class CameraClient:
     def handler_video_request(self, request):
         log = logging.getLogger('Handler video request')
         log.info('thread started')
-        full_video_name = self.save_path / (request.video_name.split('T')[0] + '/' + request.video_name + '.mp4')
-
+        video_name = request.video_name.split('|')[0]
+        camera_name = request.video_name.split('|')[1]
+        log.debug('Video name:%s, Camera name: %s', video_name, camera_name)
+        full_video_name = self.save_path / (camera_name + '/' + video_name.split('T')[0] + '/' + video_name + '.mp4')
+        log.debug('Full video name^ %s', full_video_name)
+        
         if os.path.exists(full_video_name):
             with open(full_video_name, "rb") as video:
                 video_bytes = video.read()
                 log.debug('video length: %s', len(video_bytes))
-                sock = self.get_connection(ClientRequest(request_type='video_response',
+                sock = get_connection(ClientRequest(request_type='video_response',
                                            video_name=request.video_name,
                                            video_size=str(len(video_bytes))), 1)
                 sock.sendall(video_bytes)            
         else:
-            sock = self.get_connection(ClientRequest(request_type='video_response',
+            sock = get_connection(ClientRequest(request_type='video_response',
                                            video_name=request.video_name,
                                            video_size=0), 1)
-            log.error('No such video %s', request.video_name)
+            log.error('No such video %s', full_video_name)
         sock.close()
         log.info('Thread ended')
 
@@ -482,7 +443,7 @@ class CameraClient:
     
     def init_camera(self):
         request = ClientRequest(request_type='new_record', camera_name='1')
-        sock = self.get_connection(request, 1)
+        sock = get_connection(request, 1)
         records = ''
         for camera in self.camera_sources.keys():
             logging.info('%s',camera)

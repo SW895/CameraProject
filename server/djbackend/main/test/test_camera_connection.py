@@ -360,22 +360,27 @@ class TestSaveRecord(TestCase):
         cls.test_object.DEBUG = True
         cls.time_1 = datetime.datetime.now(tz=timezone)
         cls.time_2 = datetime.datetime.now(tz=timezone) + datetime.timedelta(days=10)
+        Camera.objects.create(camera_name='test', is_active=True)
+        cls.camera_name = 'test'
         cls.record_1 = {'date_created': cls.time_1.isoformat(), 
                       'human_det':False,
                       'cat_det':False,
                       'car_det':False,
-                      'chiken_det':False}
+                      'chiken_det':False,
+                      'camera_id':'test'}
         cls.record_2 = {'date_created':cls.time_2.isoformat(), 
                       'human_det':False,
                       'cat_det':False,
                       'car_det':False,
-                      'chiken_det':False}
+                      'chiken_det':False,
+                      'camera_id':'test'}
         cls.corrupted_record = {'date_created': cls.time_1.isoformat(), 
                       'human_det':False,
                       'c111at_det':'abrakadabra',
                       'car_det':False,
-                      'chiken_det':False}
-        
+                      'chiken_det':False,
+                      'camera_id':'test'}
+
     @classmethod
     def tearDownClass(cls):
         records = ArchiveVideo.objects.all()
@@ -400,6 +405,7 @@ class TestSaveRecord(TestCase):
         records = ArchiveVideo.objects.all()
         self.assertEqual(len(records), 1)
         self.assertEqual(self.time_1, records[0].date_created)
+        self.assertEqual(self.camera_name, records[0].camera.camera_name)
 
     def test_corrupted_record_fail(self):
         records = ArchiveVideo.objects.all()
