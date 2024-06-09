@@ -88,6 +88,7 @@ class CameraSource:
         self.no_detection_time = 100
         self._obj_detected = False
         self.timezone = pytz.timezone('Europe/Moscow')
+        self.DEBUG = False
 
         if not os.path.isdir(self.save_path):
             os.mkdir(self.save_path)
@@ -165,7 +166,8 @@ class CameraSource:
                         frames_to_save.append(frame)
                     elif self._obj_detected:
                         log.debug('Save video')
-                        self.save_video(frames_to_save, self._detection)
+                        current_time = datetime.now(tz=self.timezone)
+                        self.save_video(frames_to_save, self._detection, current_time)
                         self.reset_detection_and_counter()
                         frames_to_save = []
 
@@ -215,7 +217,11 @@ class CameraSource:
         return message
 
     @new_thread
-    def save_video(self, frames_to_save, new_item):
+    def save_video(self, frames_to_save, new_item, current_time):
+        if self.DEBUG:
+            filename = 'test.json'
+        else:
+            filename = 'records.json'
         log = logging.getLogger('Save video')
         log.debug('Thread started, video length: %s, detection: %s', len(frames_to_save), new_item)
         today = date.today()
@@ -224,24 +230,23 @@ class CameraSource:
         if not os.path.isdir(today_save_path):
             os.mkdir(today_save_path)
 
-        current_date = datetime.now(tz=self.timezone)
-        video_name = os.path.join(today_save_path,current_date.strftime("%d_%m_%YT%H_%M_%S") + '.mp4')
+        video_name = os.path.join(today_save_path,current_time.strftime("%d_%m_%YT%H_%M_%S") + '.mp4')
         log.debug('video name: %s', video_name)
-        torchvision.io.write_video(video_name,numpy.array(frames_to_save),10)   
+        torchvision.io.write_video(video_name, numpy.array(frames_to_save), 10)   
 
-        new_item['date_created'] = current_date.isoformat()
+        new_item['date_created'] = current_time.isoformat()
         new_item['camera_id'] = self.camera_name
         log.debug('new_record: %s', new_item)
         new_record = json.dumps(new_item)
         sock = get_connection(ClientRequest(request_type='new_record',
-                                                   db_record=new_item), 1)
+                                                   db_record='new_item'), 1)
 
         if sock:
             try:
                 sock.send(new_record.encode())
             except BrokenPipeError or ConnectionResetError:
                 log.error('Failed to sent record to server')
-                with open('db.json', 'a') as outfile:
+                with open((self.base_dir / filename), 'a') as outfile:
                     outfile.write(new_record + '\n')
             else:
                 log.info('Successfully send record to server')

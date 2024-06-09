@@ -3,6 +3,8 @@ import configparser
 import os
 import json
 import time
+import pytz
+from datetime import date, datetime
 from django.test import TestCase
 from types import FunctionType
 from pathlib import Path
@@ -173,11 +175,7 @@ class TestHandlerUserAproveRequest(TestCase):
                                                             request_result='denied'),1))
         self.test_object.send_email.assert_called_with('username','test@mail.ru', False)
 
-import logging
-logging.basicConfig(level=logging.DEBUG,
-                    format="%(name)s | %(levelname)s | %(asctime)s | %(message)s",
-                    datefmt="%Y-%m-%dT%H:%M:%S",
-                    )
+
 class TestHandlerVideoRequest(TestCase):
 
     @classmethod
@@ -195,10 +193,8 @@ class TestHandlerVideoRequest(TestCase):
         cls.full_video_name = cls.save_path / (cls.video_name + '.mp4')
         cls.video_size = 125000
         if not os.path.isdir(cls.camera_path):
-            logging.critical('%s', cls.test_object.save_path)
             os.mkdir(cls.camera_path)
         if not os.path.isdir(cls.save_path):
-            logging.critical('%s', cls.save_path)
             os.mkdir(cls.save_path)
         with open(cls.full_video_name, 'wb') as video:
             video.write(bytes(cls.video_size))
@@ -294,7 +290,6 @@ class TestHandlerStream(TestCase):
         cls.test_object.videostream_manager = Mock()
         cls.request = ClientRequest(request_type='stream', camera_name='test_camera')
 
-
     @classmethod
     def tearDownClass(cls):
         pass
@@ -336,8 +331,6 @@ class TestVideoStream(TestCase):
     @classmethod
     def setUpClass(cls):
         cls.camera_name = 'test'
-        cls.test_client = CameraClient(config)
-        cls.test_client.DEBUG = True
         cls.test_object = CameraSource(cls.camera_name,cls.camera_name)
         cls.test_object.DEBUG = True
         cls.mock_socket = Mock()
@@ -376,8 +369,69 @@ class TestVideoStream(TestCase):
         self.mock_socket.sendall.assert_called()
 
 
-class TestCameraThread(TestCase):
-    pass
-
 class TestSaveVideo(TestCase):
-    pass
+
+    @classmethod
+    def setUpClass(cls):
+        cls.camera_name = 'test'
+        cls.test_object = CameraSource(cls.camera_name, cls.camera_name)
+        cls.test_object.DEBUG = True
+        cls.mock_socket = Mock()
+        cls.today = date.today()
+        cls.timezone = pytz.timezone('Europe/Moscow')
+        cls.current_date = datetime.now(tz=cls.timezone)
+        cls.frames_to_save = ['test', 'test', 'test']
+        cls.save_path = cls.test_object.save_path / (cls.today.strftime("%d_%m_%Y") + '/')
+        cls.excpected_record = {            
+            'car_det':True,
+            'cat_det':False,
+            'chiken_det':True,
+            'human_det':True,
+            'date_created': cls.current_date.isoformat(),
+            'camera_id':'test',
+        }
+        cls.new_record = {
+            'car_det':True,
+            'cat_det':False,
+            'chiken_det':True,
+            'human_det':True,
+        }
+
+    @classmethod
+    def tearDownClass(cls):
+        if os.path.isdir(cls.save_path):
+            os.rmdir(cls.save_path)
+        if os.path.isdir(cls.test_object.save_path):
+            os.rmdir(cls.test_object.save_path)
+        if os.path.exists(cls.test_object.base_dir / 'test.json'):
+            os.remove(cls.test_object.base_dir / 'test.json')
+
+    @patch('main_thread.torchvision')
+    @patch('main_thread.get_connection')
+    def test_save_video(self, get_connection, torch):
+        get_connection.return_value = self.mock_socket
+        self.mock_socket.send.side_effect = None
+        thread = self.test_object.save_video(self.frames_to_save, self.new_record, self.current_date)
+        thread.join()
+        torch.io.write_video.assert_called()
+
+    @patch('main_thread.torchvision')
+    @patch('main_thread.get_connection')
+    def test_record_sended_to_server(self, get_connection, torch):
+        get_connection.return_value = self.mock_socket
+        self.mock_socket.send.side_effect = None
+        thread = self.test_object.save_video(self.frames_to_save, self.new_record, self.current_date)
+        thread.join()
+        self.mock_socket.send.assert_called_with(json.dumps(self.excpected_record).encode())
+
+    @patch('main_thread.torchvision')
+    @patch('main_thread.get_connection')
+    def test_fail_to_send_new_record(self, get_connection, torch):
+        get_connection.return_value = self.mock_socket
+        self.mock_socket.send.side_effect = BrokenPipeError
+        thread = self.test_object.save_video(self.frames_to_save, self.new_record, self.current_date)
+        thread.join()
+        self.assertTrue(os.path.exists(self.test_object.base_dir / 'test.json'))
+        with open((self.test_object.base_dir / 'test.json'), 'r') as outfile:
+            line = outfile.readline()
+        self.assertEqual(line, json.dumps(self.excpected_record) +'\n')
