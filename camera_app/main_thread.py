@@ -70,7 +70,7 @@ class ClientRequest:
 
 class CameraSource:
 
-    def __init__(self, camera_source, camera_name):
+    def __init__(self, camera_source, camera_name, server_address='127.0.0.1', server_port=10900):
         self.camera_source = camera_source
         self.camera_name = camera_name
         self.model = None
@@ -89,6 +89,8 @@ class CameraSource:
         self._obj_detected = False
         self.timezone = pytz.timezone('Europe/Moscow')
         self.DEBUG = False
+        self.server_address = server_address
+        self.server_port = server_port
 
         if not os.path.isdir(self.save_path):
             os.mkdir(self.save_path)
@@ -189,7 +191,10 @@ class CameraSource:
         log.info('Thread started')
         request = ClientRequest(request_type='stream_source', camera_name=self.camera_name)
         log.debug('Connecting to server')
-        stream_sock = get_connection(request, 1)
+        stream_sock = get_connection(request,
+                                    attempts_num=1,
+                                    server_address=self.server_address,
+                                    server_port=self.server_port)
 
         if stream_sock:
             log.debug('Connected to server. Stream begin')
@@ -239,7 +244,10 @@ class CameraSource:
         log.debug('new_record: %s', new_item)
         new_record = json.dumps(new_item)
         sock = get_connection(ClientRequest(request_type='new_record',
-                                                   db_record='new_item'), 1)
+                                            db_record='new_item'), 
+                                attempts_num=1,
+                                server_address=self.server_address,
+                                server_port=self.server_port)
 
         if sock:
             try:
@@ -307,7 +315,10 @@ class CameraClient:
         log = logging.getLogger('Signal connection')        
         while True:
             request = ClientRequest(request_type='signal')
-            sock = get_connection(request, 1)
+            sock = get_connection(request,
+                              attempts_num=1,
+                              server_address=self.server_address,
+                              server_port=self.server_port)
             if sock:
                 while True:
                     log.info('Waiting for a message')
@@ -362,7 +373,10 @@ class CameraClient:
                                     request_result='denied')
             log.info('%s denied', username)              
             self.send_email(username, email, False)
-        sock = get_connection(request, 1)
+        sock = get_connection(request,
+                              attempts_num=1,
+                              server_address=self.server_address,
+                              server_port=self.server_port)
         sock.close()
 
     def send_email(self, username, email, result):
@@ -427,12 +441,18 @@ class CameraClient:
                 log.debug('video length: %s', len(video_bytes))
                 sock = get_connection(ClientRequest(request_type='video_response',
                                            video_name=request.video_name,
-                                           video_size=str(len(video_bytes))), 1)
+                                           video_size=str(len(video_bytes))), 
+                                        attempts_num=1,
+                                        server_address=self.server_address,
+                                        server_port=self.server_port)
                 sock.sendall(video_bytes)            
         else:
             sock = get_connection(ClientRequest(request_type='video_response',
                                            video_name=request.video_name,
-                                           video_size=0), 1)
+                                           video_size=0), 
+                                        attempts_num=1,
+                                        server_address=self.server_address,
+                                        server_port=self.server_port)
             log.error('No such video %s', full_video_name)
         sock.close()
         log.info('Thread ended')
@@ -444,7 +464,10 @@ class CameraClient:
     
     def init_camera(self):
         request = ClientRequest(request_type='new_record', camera_name='1')
-        sock = get_connection(request, 1)
+        sock = get_connection(request,
+                              attempts_num=1,
+                              server_address=self.server_address,
+                              server_port=self.server_port)
         records = ''
         for camera in self.camera_sources.keys():
             logging.info('%s',camera)
@@ -469,7 +492,7 @@ class CameraClient:
         #camera_list = [(0, 'aaa'),(0, 'bbb'),(0, 'ccc'),(0, 'ddd'),(0, 'eee'),(0, 'fff'),(0, 'ggg'),(0, 'hhh'),(0, 'iii'),(0, 'kkk'),(0, 'lll'),(0, 'mmm')]
         camera_list = [(0,'222')]
         for camera in camera_list:
-            self.camera_sources[camera[1]] = CameraSource(camera[0], camera[1])
+            self.camera_sources[camera[1]] = CameraSource(camera[0], camera[1], self.server_address, self.server_port)
 
     @check_thread
     def videostream_manager(self):

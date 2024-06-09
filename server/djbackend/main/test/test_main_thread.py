@@ -161,7 +161,7 @@ class TestHandlerUserAproveRequest(TestCase):
         name, args, kwargs = get_connection.mock_calls[0]
         self.assertEqual(args, (ClientRequest(request_type='user_aprove_response',
                                                             username='username',
-                                                            request_result='aproved'),1))
+                                                            request_result='aproved'), ))
         self.test_object.send_email.assert_called_with('username','test@mail.ru', True)
 
     @patch('main_thread.get_connection')
@@ -172,7 +172,7 @@ class TestHandlerUserAproveRequest(TestCase):
         name, args, kwargs = get_connection.mock_calls[0]
         self.assertEqual(args, (ClientRequest(request_type='user_aprove_response',
                                                             username='username',
-                                                            request_result='denied'),1))
+                                                            request_result='denied'), ))
         self.test_object.send_email.assert_called_with('username','test@mail.ru', False)
 
 
@@ -215,7 +215,7 @@ class TestHandlerVideoRequest(TestCase):
         name, args, kwargs = get_connection.mock_calls[0]
         self.assertEqual(args, (ClientRequest(request_type='video_response',
                                            video_name='2021-04-23T14:12:12|test',
-                                           video_size=str(self.video_size)), 1))
+                                           video_size=str(self.video_size)), ))
         self.mock_socket.sendall.assert_called_once_with(bytes(self.video_size))
 
     @patch('main_thread.get_connection')
@@ -225,7 +225,7 @@ class TestHandlerVideoRequest(TestCase):
         name, args, kwargs = get_connection.mock_calls[0]
         self.assertEqual(args, (ClientRequest(request_type='video_response',
                                            video_name='2021-04-23T14:12:12|test',
-                                           video_size=0), 1))
+                                           video_size=0), ))
 
 
 class TestRunClient(TestCase):
@@ -350,7 +350,7 @@ class TestVideoStream(TestCase):
         time.sleep(0.5)
         self.test_object.kill_thread()
         name, args, kwargs = get_connection.mock_calls[0]
-        self.assertEqual(args, (request, 1))
+        self.assertEqual(args, (request, ))
 
     @patch('main_thread.get_connection')
     def test_convert_frame_called(self, get_connection):

@@ -36,22 +36,22 @@ def new_thread(target_function):
 
     return inner
 
-def get_connection(self, request, attempts_num=0):
+def get_connection(request, attempts_num=0, server_address='127.0.0.1', server_port=10900, buff_size=4096):
         log = logging.getLogger('Get connection')
         counter = cycle([1]) if attempts_num == 0 else range(0,attempts_num)
         log.info('Request type: %s', request.request_type)
         for i in counter:        
             try:
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                log.info('Connecting to %s:%s', self.server_address, self.server_port)
-                sock.connect((self.server_address, self.server_port))
+                log.info('Connecting to %s:%s', server_address, server_port)
+                sock.connect((server_address, server_port))
             except socket.error as err:
                 log.error('Failed to connect: %s', err)
                 sock.close()  
                 time.sleep(5)          
                 continue
             else:  
-                log.info('Successfully connected to %s:%s', self.server_address, self.server_port)          
+                log.info('Successfully connected to %s:%s', server_address, server_port)          
                 try:
                     sock.send(json.dumps(request.__dict__).encode())
                 except BrokenPipeError or ConnectionResetError:
@@ -61,7 +61,7 @@ def get_connection(self, request, attempts_num=0):
                     continue
                 else:
                     try:
-                        reply = sock.recv(self.buff_size)
+                        reply = sock.recv(buff_size)
                     except OSError:
                         sock.close()
                         time.sleep(5)
