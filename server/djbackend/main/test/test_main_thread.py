@@ -6,7 +6,7 @@ import time
 from django.test import TestCase
 from types import FunctionType
 from pathlib import Path
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import Mock, patch
 
 
 base_dir = Path(__file__).resolve().parent.parent.parent.parent.parent

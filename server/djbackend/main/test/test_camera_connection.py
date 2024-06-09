@@ -386,6 +386,8 @@ class TestSaveRecord(TestCase):
         records = ArchiveVideo.objects.all()
         for item in records:
             item.delete()
+        cam = Camera.objects.get(camera_name=cls.camera_name)
+        cam.delete()
 
     @patch('camera_conn.connect_to_db')
     def test_connect_to_db_called(self, connect_to_db):
@@ -510,9 +512,9 @@ class TestHandlerVideoResponse(TestCase):
         cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
         cls.test_object.DEBUG = True
         cls.request = ServerRequest(request_type='video_response',
-                                    video_name='25-01-2021T14:29:18',
+                                    video_name='25-01-2021T14:29:18|test',
                                     video_size=125000)
-        cls.video_name = '25-01-2021T14:29:18'
+        cls.video_name = '25-01-2021T14:29:18|test'
         cls.address = '127.0.0.1'
         cls.video_path = str(base_dir) +'/djbackend/mediafiles/25-01-2021T14:29:18.mp4'
     
@@ -544,7 +546,7 @@ class TestHandlerVideoResponse(TestCase):
         with patch('socket.socket') as mock_socket:
             mock_socket.recv.return_value = None
             request = ServerRequest(request_type='video_response',
-                                    video_name='25-01-2021T14:29:18',
+                                    video_name='25-01-2021T14:29:18|test',
                                     video_size=0,
                                     connection=mock_socket)            
             self.test_object.ehandler_video_response(request)
@@ -656,23 +658,23 @@ class TestVideoManager(TestCase):
         cls.test_object = EchoServer(test_adress, test_port_1, test_adress, test_port_2)
         cls.test_object.DEBUG = True
         cls.request_1 = ServerRequest(request_type='video',
-                                      video_name='20-01-2023T14:23:41',
+                                      video_name='20-01-2023T14:23:41|test',
                                       connection=Mock())
         cls.request_1_1 = ServerRequest(request_type='video',
-                                      video_name='20-01-2023T14:23:41',
+                                      video_name='20-01-2023T14:23:41|test',
                                       connection=Mock())
         cls.request_2 = ServerRequest(request_type='video',
-                                      video_name='10-01-2023T14:23:41',
+                                      video_name='10-01-2023T14:23:41|test',
                                       connection=Mock())
         cls.response_success = ServerRequest(request_type='video',
                                             request_result='success',
-                                            video_name='20-01-2023T14:23:41')
+                                            video_name='20-01-2023T14:23:41|test')
         cls.response_success_2 = ServerRequest(request_type='video',
                                             request_result='success',
-                                            video_name='10-01-2023T14:23:41')
+                                            video_name='10-01-2023T14:23:41|test')
         cls.response_failure = ServerRequest(request_type='video',
                                             request_result='failure',
-                                            video_name='20-01-2023T14:23:41')
+                                            video_name='20-01-2023T14:23:41|test')
     
     @classmethod
     def tearDownClass(cls):

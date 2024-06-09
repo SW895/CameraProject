@@ -1,5 +1,4 @@
 import cv2
-import socket
 import os
 import queue
 import configparser
@@ -11,10 +10,8 @@ import smtplib
 import ssl
 import pytz
 import logging
-import time
 import base64
 import threading
-from itertools import cycle
 from pathlib import Path
 from utils import check_thread, new_thread, get_connection
 from ultralytics import YOLO
@@ -251,7 +248,6 @@ class CameraSource:
             sock.close()
 
 
-
 class CameraClient:
 
     def __init__(self, config):
@@ -468,7 +464,7 @@ class CameraClient:
         #camera_list = [(0, 'aaa'),(0, 'bbb'),(0, 'ccc'),(0, 'ddd'),(0, 'eee'),(0, 'fff'),(0, 'ggg'),(0, 'hhh'),(0, 'iii'),(0, 'kkk'),(0, 'lll'),(0, 'mmm')]
         camera_list = [(0,'222')]
         for camera in camera_list:
-            self.camera_sources[camera[1]] = CameraSource(camera[0], camera[1], self)
+            self.camera_sources[camera[1]] = CameraSource(camera[0], camera[1])
 
     @check_thread
     def videostream_manager(self):
@@ -480,14 +476,6 @@ class CameraClient:
             current_stream_source.kill_thread()
             logging.info('STARTING THREAD')
             current_stream_source.run_thread()
-    
-    #@check_thread
-    #def replicator(self):
-    #    while True:
-    #        frame = test1.frame_queue.get()
-    #        for camera in self.camera_sources.keys():
-    #            if self.camera_sources[camera].frame_queue.qsize() == 0:
-    #                self.camera_sources[camera].frame_queue.put(frame)
 
 
 if __name__ == '__main__':

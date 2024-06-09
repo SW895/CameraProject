@@ -248,19 +248,25 @@ class TestVideoDetailView(TestCase):
     def setUp(cls):
         cls.current_date = datetime.datetime.now(tz=timezone)
         cls.date_string = cls.current_date.strftime('%Y-%m-%d')
-        cls.video_name = cls.current_date.strftime("%d_%m_%YT%H_%M_%S")
+        cls.video_name = cls.current_date.strftime("%d_%m_%YT%H_%M_%S") 
+        
         cls.test_user = 'test_user_1'
         cls.test_password = '1X<ISRUkw+tuK'
         test_user = User.objects.create_user(username=cls.test_user,
                                              password=cls.test_password,
                                              is_active=True,)
         test_user.save()
+        cls.test_camera_pk = Camera.objects.create(camera_name = 'test',
+                                                is_active = True,).pk
+        cls.request = {'request_type':'video_request', 'video_name':(cls.video_name + '|' + cls.test_camera_pk)}
+        camera = Camera.objects.get(pk=cls.test_camera_pk)
         cls.test_video_pk = ArchiveVideo.objects.create(
                                     date_created=cls.current_date,
                                     human_det = False,
                                     chiken_det = False,
                                     cat_det = False,
-                                    car_det = False
+                                    car_det = False,
+                                    camera = camera,
                                     ).pk        
         cls.test_object = VideoDetailView()
     
@@ -347,7 +353,7 @@ class TestVideoDetailView(TestCase):
         mock_socket = Mock()
         VideoDetailView.connect_to_server = Mock(return_value=mock_socket)
         mock_socket.recv.return_value = b'success'
-        response = self.test_object.request_video(video_name=self.video_name)
+        response = self.test_object.request_video(self.request)
         self.assertTrue(response)
         mock_socket.recv.assert_called_once()
 
@@ -355,6 +361,6 @@ class TestVideoDetailView(TestCase):
         mock_socket = Mock()
         VideoDetailView.connect_to_server = Mock(return_value=mock_socket)
         mock_socket.recv.return_value = b'failure'
-        response = self.test_object.request_video(video_name=self.video_name)
+        response = self.test_object.request_video(self.request)
         self.assertFalse(response)
         mock_socket.recv.assert_called_once()

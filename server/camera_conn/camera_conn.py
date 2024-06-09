@@ -509,10 +509,10 @@ class EchoServer:
                 log.info('%s', self.debug_video_save_path) 
                 if self.DEBUG:                    
                     video_name_save = os.path.join(str(self.debug_video_save_path) + '/'
-                                               + request.video_name + '.mp4')    
+                                               + request.video_name.split('|')[0] + '.mp4')    
                 else:
                     video_name_save = os.path.join(str(self.video_save_path) 
-                                               + request.video_name + '.mp4')
+                                               + request.video_name.split('|')[0] + '.mp4')
                 log.info('Saving file')
                 with open(video_name_save, "wb") as video:
                     video.write(video_data)
