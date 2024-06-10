@@ -30,25 +30,25 @@ if sock_camera:
 
 current_time = datetime.now(tz=timezone)
 
-video_record_1 = {'date_created':current_time - datetime.timedelta(days=50),
+video_record_1 = {'date_created':"22_01_2024T18:38:37.160934+03:00",
                   'car_det': True,
                   'cat_det':False,
                   'chiken_det':False,
                   'human_det':False,
                   'camera_id':'test_camera_1'}
-video_record_2 = {'date_created':current_time - datetime.timedelta(days=100),
+video_record_2 = {'date_created':"09_09_2024T11:38:37.160934+03:00",
                   'car_det': False,
                   'cat_det':True,
                   'chiken_det':False,
                   'human_det':False,
                   'camera_id':'test_camera_1'}
-video_record_3 = {'date_created':current_time - datetime.timedelta(days=150),
+video_record_3 = {'date_created':"10_06_2024T19:22:37.160934+03:00",
                   'car_det': False,
                   'cat_det':False,
                   'chiken_det':True,
                   'human_det':False,
                   'camera_id':'test_camera_2'}
-video_record_4 = {'date_created':current_time - datetime.timedelta(days=200),
+video_record_4 = {'date_created':"18_05_2023T21:38:37.160934+03:00",
                   'car_det': False,
                   'cat_det':False,
                   'chiken_det':False,

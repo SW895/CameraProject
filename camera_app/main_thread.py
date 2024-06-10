@@ -265,19 +265,20 @@ class CameraClient:
 
     def __init__(self, config):
         self.DEBUG = False
+        self.config = config
         self.stream_request_queue = queue.Queue()
-        self.server_address = config['DEFAULT']['SERVER_ADRESS']
-        self.server_port = int(config['DEFAULT']['SERVER_PORT'])
+        self.server_address = self.config['SERVER']['SERVER_ADRESS']
+        self.server_port = int(self.config['SERVER']['SERVER_PORT'])
         self.handlers = self.get_handlers()
         self.buff_size = 4096
         self.base_dir = Path(__file__).resolve().parent.parent
         self.save_path = self.base_dir / 'video_archive/'
-        self.user_list = config['USER_LIST']['USER_LIST'].split(' ')
-        self.email_user = config['EMAIL']['EMAIL_USER']
-        self.email_password = config['EMAIL']['EMAIL_PASSWORD']
-        self.email_port = config['EMAIL']['EMAIL_PORT']
+        self.user_list = self.config['USER_LIST']['USER_LIST'].split(' ')
+        self.email_user = self.config['EMAIL']['EMAIL_USER']
+        self.email_password = self.config['EMAIL']['EMAIL_PASSWORD']
+        self.email_port = self.config['EMAIL']['EMAIL_PORT']
         self.email_backend = 'smtp.gmail.com'        
-        self.APROVE_ALL = bool(config['USER_LIST']['APROVE_ALL'])
+        self.APROVE_ALL = bool(self.config['USER_LIST']['APROVE_ALL'])
         self.camera_sources = {}
         self._videostream_manager = threading.Event()
 
@@ -486,13 +487,11 @@ class CameraClient:
         self.videostream_manager()
 
     def get_camera_sources(self):
-        # { 'camera_name(serial_number)':'camera_address'}
-        # {'123456789':'rtsp://username:password@192.168.1.64/1'}
-        #TODO REFACTORING
-        #camera_list = [(0, 'aaa'),(0, 'bbb'),(0, 'ccc'),(0, 'ddd'),(0, 'eee'),(0, 'fff'),(0, 'ggg'),(0, 'hhh'),(0, 'iii'),(0, 'kkk'),(0, 'lll'),(0, 'mmm')]
-        camera_list = [(0,'222')]
+        camera_list = self.config['CAMERA_LIST'].keys()
+        logging.debug('%s', camera_list)
         for camera in camera_list:
-            self.camera_sources[camera[1]] = CameraSource(camera[0], camera[1], self.server_address, self.server_port)
+            self.camera_sources[camera] = CameraSource(self.config['CAMERA_LIST'][camera], camera, self.server_address, self.server_port)
+            logging.debug('Camera name:%s, Camera source:%s', camera, self.config['CAMERA_LIST'][camera])
 
     @check_thread
     def videostream_manager(self):
