@@ -15,11 +15,6 @@
         Main Page 
       </a>
 
-      <a class="item" href="{% url 'archive' %}">  
-        <i class="archive icon"></i>  
-        Archive  
-      </a> 
-
       {% if user.is_authenticated %}
 
       <a class="item" href="{% url 'stream' %}">  

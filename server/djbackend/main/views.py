@@ -35,13 +35,13 @@ def stream_view(request):
         }        
     )
 
-#@login_required
+@login_required
 def archive_view(request):    
     cameras = Camera.objects.all()
     videos = ArchiveVideo.objects.all()
     params = {}
     det_fields = []
-    page_number = 0
+    page_number = 1
     for field in ArchiveVideo._meta.get_fields():
         if field.name.find('_det') > 0:
             det_fields.append((field.name, field.name.removesuffix('_det').title()))
