@@ -9,6 +9,7 @@ from django.views import generic
 from django.core.cache import cache
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.mixins import LoginRequiredMixin
+from django.core.paginator import Paginator
 from .models import ArchiveVideo, CachedVideo, Camera
 from .tasks import update_cache
 
@@ -34,29 +35,41 @@ def stream_view(request):
         }        
     )
 
-@login_required
-def archive_view(request):
+#@login_required
+def archive_view(request):    
+    cameras = Camera.objects.all()
     videos = ArchiveVideo.objects.all()
     params = {}
+    det_fields = []
+    page_number = 0
+    for field in ArchiveVideo._meta.get_fields():
+        if field.name.find('_det') > 0:
+            det_fields.append((field.name, field.name.removesuffix('_det').title()))
 
     if request.GET:
         params = request.GET.dict()
-
         if 'date_created' in params.keys():
             date = datetime.strptime(params['date_created'], '%Y-%m-%d')
             videos = ArchiveVideo.objects.filter(date_created__date=date)
             del params['date_created']
-
+        if 'page' in params.keys():
+            page_number = request.GET.get("page")            
+            del params['page']
         if params:
             videos = videos.filter(**params)
 
+    paginator = Paginator(videos, 2)  
+    page_obj = paginator.get_page(page_number)  
     return render(
         request,
         'main/archive_page.html',
         context={
             'params': params,
-            'videos': videos,
+            'cameras': cameras,
+            'det_fields':det_fields,
             'full_url': str(request.get_full_path()),
+            'page_obj': page_obj,
+            'current_page':page_number,
         }
     )
 

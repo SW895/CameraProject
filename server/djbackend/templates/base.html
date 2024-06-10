@@ -15,6 +15,11 @@
         Main Page 
       </a>
 
+      <a class="item" href="{% url 'archive' %}">  
+        <i class="archive icon"></i>  
+        Archive  
+      </a> 
+
       {% if user.is_authenticated %}
 
       <a class="item" href="{% url 'stream' %}">  
@@ -75,7 +80,7 @@
         {% endblock %}      
       </div>
       
-      <div class="ten wide column">
+      <div class="center aligned ten wide column">
         {% block content %}
         {% endblock %}
       </div>      
@@ -83,11 +88,3 @@
 
   </body>
 </html>
-
-
-
-
-
-    
-    
-       
