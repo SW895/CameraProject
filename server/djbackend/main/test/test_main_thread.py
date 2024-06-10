@@ -261,7 +261,8 @@ class TestInitCamera(TestCase):
     
     @classmethod
     def tearDownClass(cls):
-        pass
+        if os.path.isdir(cls.test_object.camera_sources['test_camera'].save_path):
+            os.rmdir(cls.test_object.camera_sources['test_camera'].save_path)
     
     @patch('main_thread.get_connection')
     def test_get_connection_called(self, get_connection):
@@ -315,7 +316,8 @@ class TestVideoStreamManager(TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        pass
+        if os.path.isdir(cls.test_object.camera_sources['test_camera'].save_path):
+            os.rmdir(cls.test_object.camera_sources['test_camera'].save_path)
 
     def test_starting_new_videostream_thread(self):
         thread = self.test_object.videostream_manager()
@@ -331,7 +333,7 @@ class TestVideoStream(TestCase):
     @classmethod
     def setUpClass(cls):
         cls.camera_name = 'test'
-        cls.test_object = CameraSource(cls.camera_name,cls.camera_name)
+        cls.test_object = CameraSource(cls.camera_name, cls.camera_name)
         cls.test_object.DEBUG = True
         cls.mock_socket = Mock()
         cls.test_object.frame_queue = Mock()
@@ -340,7 +342,8 @@ class TestVideoStream(TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        pass
+        if os.path.isdir(cls.test_object.save_path):
+            os.rmdir(cls.test_object.save_path)
 
     @patch('main_thread.get_connection')
     def test_get_connection_called(self, get_connection):
