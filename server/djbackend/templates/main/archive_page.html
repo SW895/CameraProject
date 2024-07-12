@@ -4,7 +4,7 @@
 
 {% block content %}
 <script type="text/javascript">
-    function form_url2() {
+    function form_custom_date_url() {
         const form1 = document.querySelector("#myform"); 
         //var date_from = form1.elements.date_from.value;
         //var date_to = form1.elements.date_to.value;
@@ -20,80 +20,101 @@
         location.replace(url);      
     }
 
-    function today_url(){
+    function form_today_url(){
         let currentDate = new Date().toJSON().slice(0,10);
         var url = new URL(window.location);
         url.searchParams.set('date_created',currentDate);
         location.replace(url); 
     }
+
+    function form_camera_url(id){
+        var url = new URL(window.location);
+        url.searchParams.set('camera_id',id);
+        location.replace(url);
+    }
 </script>
 
-{% if videos %}
+{% if page_obj %}
 <table class="ui celled structured table">
     <thead>
       <tr>
-        <th rowspan="2">Date recorded</th>
-        <th rowspan="2">Car Detection</th>
-        <th rowspan="2">Cat Detection</th>
-        <th rowspan="2">Chiken Detection</th>
-        <th rowspan="2">Human Detection</th>
+        <th rowspan="2">Date recorded</th>        
+        {% for name, capitalized_name in det_fields %}
+            <th rowspan="2">{{ capitalized_name }}</th>
+        {% endfor %}
+        <th rowspan="2">Camera name</th>
       </tr>
     </thead>
     <tbody>
-        {% for video in videos %}
+        {% for video in page_obj %}
         <tr>
             <td><a href="{% url 'video-detail' video.pk %}">{{ video.date_created }}</a></td>
-            {% if video.car_det %}
-            <td class="center aligned">
-                <i class="large green checkmark icon"></i>
-            </td>
-            {% else %}
-            <td></td>
-            {% endif %}
-
-            {% if video.cat_det %}
-            <td class="center aligned">
-                <i class="large green checkmark icon"></i>
-            </td>
-            {% else %}
-            <td></td>
-            {% endif %}
-
-            {% if video.chiken_det %}
-            <td class="center aligned">
-                <i class="large green checkmark icon"></i>
-            </td>
-            {% else %}
-            <td></td>
-            {% endif %}
-
-            {% if video.human_det %}
-            <td class="center aligned">
-                <i class="large green checkmark icon"></i>
-            </td>
-            {% else %}
-            <td></td>
-            {% endif %}
+            {% for field, value in video.get_fields %}
+                {% if value %}
+                    <td class="center aligned">
+                        <i class="large green checkmark icon"></i>
+                    </td>
+                {% else %}
+                    <td></td>
+                {% endif %}
+            {% endfor %}
+            <td>{{ video.camera_id }}</td>            
         </tr>
         {% endfor %} 
     </tbody>      
 </table>
-
 {% else %}
-
 <h1 class="ui center aligned header">No videos found</h1>
+{% endif %}
 
+{% if page_obj %}
+<div class="ui pagination menu">
+    {% if page_obj.has_previous %}
+    <a class="item" href="?page=1">
+        <button class="ui secondary basic button">            
+            first: 1
+        </button>
+    </a>
+    <a class="item" href="?page={{ page_obj.previous_page_number }}">
+        <button class="ui secondary basic button">            
+            previous
+        </button>
+    </a>
+    {% endif %}
+    <a class="active item" href="?page={{ current_page }}">
+        <button class="ui secondary basic button">            
+            {{ current_page }}
+        </button>
+    </a>
+    {% if page_obj.has_next %}
+    <a class="item" href="?page={{ page_obj.next_page_number }}">
+        <button class="ui secondary basic button">            
+            next
+        </button>
+    </a>
+    <a class="item" href="?page={{ page_obj.paginator.num_pages }}">
+        <button class="ui secondary basic button">            
+            last: {{ page_obj.paginator.num_pages }}
+        </button>
+    </a>
+    {% endif %}
+</div>
 {% endif %}
 
 {% endblock %}
 
 
 {% block filter %}
-<h1 class="ui center aligned header">Filter</h1>
 
-<h2 class="ui center aligned header">Date:</h2>
+<a href="{% url 'archive' %}">
+    <button class="ui fluid button">
+        Reset filter
+    </button>
+</a>
 
-<a id="link" href="#" onclick="today_url();">
+<h2 class="ui center aligned header">Filter by Date:</h2>
+
+<a id="link" href="#" onclick="form_today_url();">
     <button class="ui fluid button">            
         Today
     </button>
@@ -106,70 +127,44 @@
         <input type="date" name="date" required="">
     </div>
 </form>
-    <a id="link" href="#" onclick="form_url2();">
+    <a id="link" href="#" onclick="form_custom_date_url();">
         <button class="ui fluid button">            
             Search date
         </button>
     </a>  
 
-
-<h2 class="ui center aligned header">Detected object:</h2>
+<h2 class="ui center aligned header">Filter by detected object:</h2>
 
 <div class="ui fluid vertical buttons">
-    <a href="{{ full_url|get_url:'car_det' }}">
-    {% if params.car_det %}
-        <button class="ui active button">            
-            Car 
-        </button></a>
-    {% else %}
-        <button class="ui button">            
-            Car 
-        </button>
-    {% endif %} 
-    </a>
-
-    <a href="{{ full_url|get_url:'cat_det' }}">
-    {% if params.cat_det %}
-        <button class="ui active button">            
-            Cat 
-        </button></a>
-    {% else %}
-        <button class="ui button">            
-            Cat 
-        </button>
-    {% endif %} 
-    </a>
-
-    <a href="{{ full_url|get_url:'chiken_det' }}">
-    {% if params.chiken_det %}
-        <button class="ui active button">            
-            Chiken 
-        </button></a>
-    {% else %}
-        <button class="ui button">            
-            Chiken 
-        </button>
-    {% endif %} 
-    </a>
-
-    <a href="{{ full_url|get_url:'human_det' }}">
-    {% if params.human_det %}
-        <button class="ui active button">            
-            Human 
-        </button></a>
-    {% else %}
-        <button class="ui button">            
-            Human 
-        </button>
-    {% endif %} 
-    </a>
-
-    <h1 class="ui header"></h1>
-    <a href="{% url 'archive' %}">
-        <button class="ui button">            
-            Reset filter
-        </button>
-    </a>
+    {% for name, capitalized_name in det_fields %}
+    <a href="{{ full_url|get_url:name }}">
+        {% if name in params %}
+            <button class="ui active button">
+                {{ capitalized_name }} 
+            </button>
+        {% else %}
+            <button class="ui button">            
+                {{ capitalized_name }}
+            </button>
+        {% endif %} 
+        </a>
+    {% endfor %}
 </div>
 
+<h2 class="ui center aligned header">Filter by camera:</h2>
+<div class="ui fluid vertical buttons">
+    {% for camera in cameras %}        
+        <a id="{{ camera.camera_name }}" href="#" onclick="form_camera_url(this.id);">
+            {% if params.camera_id == camera.camera_name %}
+                <button class="ui active button">            
+                    {{ camera.camera_name }}
+                </button>
+            {% else %}
+                <button class="ui button">            
+                    {{ camera.camera_name }}
+                </button>
+            {% endif %} 
+        </a>
+    {% endfor %}   
+</div>
 {% endblock %}

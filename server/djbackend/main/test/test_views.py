@@ -1,14 +1,13 @@
+import datetime
+import pytz
+import json
 from django.test import TestCase
 from django.contrib.auth import get_user_model
 from django.urls import reverse
-from ..models import ArchiveVideo, CachedVideo
-from ..views import VideoDetailView
-import datetime
-import socket, threading
-import queue
-from unittest.mock import Mock, patch
 from django.core.cache import cache
-import pytz
+from unittest.mock import Mock, patch
+from ..models import ArchiveVideo, CachedVideo, Camera
+from ..views import VideoDetailView
 
 
 User = get_user_model()
@@ -58,6 +57,9 @@ class TestStreamView(TestCase):
                                              password=cls.test_password,
                                              is_active=True,)
         test_user.save()
+        cls.active_camera_id = 'active'
+        Camera.objects.create(camera_name='active', is_active=True)
+        Camera.objects.create(camera_name='non_active', is_active=False)
 
     def test_GET_anonymous_user(self):
         response = self.client.get(reverse('stream'))
@@ -81,33 +83,18 @@ class TestStreamView(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(str(response.context['user']), self.test_user)
         self.assertTemplateUsed(response, 'main/stream_page.html')
-
-
-class TestCameraSourceView(TestCase):
-    @classmethod
-    def setUpTestData(cls):
-        cls.test_user = 'test_user_1'
-        cls.test_password = '1X<ISRUkw+tuK'
-        test_user = User.objects.create_user(username=cls.test_user,
-                                             password=cls.test_password,
-                                             is_active=True,)
-        test_user.save()
-
-    def test_GET_anonymous_user(self):
-        response = self.client.get(reverse('camera-source'))
-        self.assertRedirects(response, '/accounts/login/?next=/camera_source/')
-
-    def test_GET_authenticated_user(self):
+    
+    def test_proper_camera_queryset(self):
         self.client.login(username=self.test_user, password=self.test_password)
-        response = self.client.get(reverse('camera-source'), follow=True)
-        #self.assertEqual(str(response.context['user']), self.test_user)
+        response = self.client.get(reverse('stream'))
+        expected_camera_name = Camera.objects.get(camera_name=self.active_camera_id)
+        cam_list = [expected_camera_name.camera_name]
+        expected_cam_list = json.dumps(cam_list)
         self.assertEqual(response.status_code, 200)
-
-    def test_view_url_exists_at_desired_location(self):
-        self.client.login(username=self.test_user, password=self.test_password)
-        response = self.client.get('/camera_source/', follow=True)
-        #self.assertEqual(str(response.context['user']), self.test_user)
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(str(response.context['user']), self.test_user)
+        self.assertEqual(response.context['camera_list'][0].camera_name, expected_camera_name.camera_name)
+        self.assertEqual(response.context['cam_list'], expected_cam_list)
+        self.assertEqual(1, len(response.context['camera_list']))
 
 
 class TestArchiveView(TestCase):
@@ -121,15 +108,19 @@ class TestArchiveView(TestCase):
                                              password=cls.test_password,
                                              is_active=True,)
         test_user.save()  
-
+        cls.test_camera = 'test'
+        cls.wrong_camera = 'wrong'
+        Camera.objects.create(camera_name=cls.test_camera)
+        Camera.objects.create(camera_name=cls.wrong_camera)
+        camera = Camera.objects.get(pk=cls.test_camera)
         cls.test_video_pk = ArchiveVideo.objects.create(
                                     date_created=cls.current_date 
                                     - datetime.timedelta(days=10),
                                     human_det = False,
                                     chiken_det = False,
                                     cat_det = False,
-                                    car_det = False
-                                    ).pk
+                                    car_det = False,
+                                    camera=camera).pk
     
     def test_GET_anonymous_user(self):
         response = self.client.get(reverse('archive'))
@@ -159,104 +150,104 @@ class TestArchiveView(TestCase):
         response = self.client.get(f'/archive?date_created={self.date_string}', follow=True)
         self.assertEqual(str(response.context['user']), self.test_user)
         self.assertEqual(response.status_code, 200)
-        self.assertTrue('videos' in response.context)
-        self.assertEqual(len(response.context['videos']), 0)
-
+        self.assertTrue('page_obj' in response.context)
+        self.assertEqual(len(response.context['page_obj']), 0)
         test_video = ArchiveVideo.objects.get(pk=self.test_video_pk)
         test_video.date_created = self.current_date
         test_video.save()
-
         response = self.client.get(f'/archive?date_created={self.date_string}', follow=True)
         self.assertEqual(str(response.context['user']), self.test_user)
         self.assertEqual(response.status_code, 200)
-        self.assertTrue('videos' in response.context)
-        self.assertEqual(len(response.context['videos']), 1)
+        self.assertTrue('page_obj' in response.context)
+        self.assertEqual(len(response.context['page_obj']), 1)
 
     def test_human_det_item(self):
         self.client.login(username=self.test_user, password=self.test_password)
-
         response = self.client.get('/archive?human_det=True', follow=True)
         self.assertEqual(str(response.context['user']), self.test_user)
         self.assertEqual(response.status_code, 200)
-        self.assertTrue('videos' in response.context)
-        self.assertEqual(len(response.context['videos']), 0)
-
+        self.assertTrue('page_obj' in response.context)
+        self.assertEqual(len(response.context['page_obj']), 0)
         test_video = ArchiveVideo.objects.get(pk=self.test_video_pk)
         test_video.human_det = True
         test_video.save()
-
         response = self.client.get('/archive?human_det=True', follow=True)
         self.assertEqual(str(response.context['user']), self.test_user)
         self.assertEqual(response.status_code, 200)
-        self.assertTrue('videos' in response.context)
-        self.assertEqual(len(response.context['videos']), 1)
+        self.assertTrue('page_obj' in response.context)
+        self.assertEqual(len(response.context['page_obj']), 1)
     
     def test_chiken_det_item(self):
         self.client.login(username=self.test_user, password=self.test_password)
-
         response = self.client.get('/archive?chiken_det=True', follow=True)
         self.assertEqual(str(response.context['user']), self.test_user)
         self.assertEqual(response.status_code, 200)
-        self.assertTrue('videos' in response.context)
-        self.assertEqual(len(response.context['videos']), 0)
-
+        self.assertTrue('page_obj' in response.context)
+        self.assertEqual(len(response.context['page_obj']), 0)
         test_video = ArchiveVideo.objects.get(pk=self.test_video_pk)
         test_video.chiken_det = True
         test_video.save()
-
         response = self.client.get('/archive?chiken_det=True', follow=True)
         self.assertEqual(str(response.context['user']), self.test_user)
         self.assertEqual(response.status_code, 200)
-        self.assertTrue('videos' in response.context)
-        self.assertEqual(len(response.context['videos']), 1)
+        self.assertTrue('page_obj' in response.context)
+        self.assertEqual(len(response.context['page_obj']), 1)
     
     def test_car_det_item(self):
         self.client.login(username=self.test_user, password=self.test_password)
-
         response = self.client.get('/archive?car_det=True', follow=True)
         self.assertEqual(str(response.context['user']), self.test_user)
         self.assertEqual(response.status_code, 200)
-        self.assertTrue('videos' in response.context)
-        self.assertEqual(len(response.context['videos']), 0)
-
+        self.assertTrue('page_obj' in response.context)
+        self.assertEqual(len(response.context['page_obj']), 0)
         test_video = ArchiveVideo.objects.get(pk=self.test_video_pk)
         test_video.car_det = True
         test_video.save()
-
         response = self.client.get('/archive?car_det=True', follow=True)
         self.assertEqual(str(response.context['user']), self.test_user)
         self.assertEqual(response.status_code, 200)
-        self.assertTrue('videos' in response.context)
-        self.assertEqual(len(response.context['videos']), 1)
+        self.assertTrue('page_obj' in response.context)
+        self.assertEqual(len(response.context['page_obj']), 1)
 
     def test_cat_det_item(self):
         self.client.login(username=self.test_user, password=self.test_password)
-
         response = self.client.get('/archive?cat_det=True', follow=True)
         self.assertEqual(str(response.context['user']), self.test_user)
         self.assertEqual(response.status_code, 200)
-        self.assertTrue('videos' in response.context)
-        self.assertEqual(len(response.context['videos']), 0)
-
+        self.assertTrue('page_obj' in response.context)
+        self.assertEqual(len(response.context['page_obj']), 0)
         test_video = ArchiveVideo.objects.get(pk=self.test_video_pk)
         test_video.cat_det = True
         test_video.save()
-
         response = self.client.get('/archive?cat_det=True', follow=True)
         self.assertEqual(str(response.context['user']), self.test_user)
         self.assertEqual(response.status_code, 200)
-        self.assertTrue('videos' in response.context)
-        self.assertEqual(len(response.context['videos']), 1)
+        self.assertTrue('page_obj' in response.context)
+        self.assertEqual(len(response.context['page_obj']), 1)
     
-    def test_full_query(self):
+    def test_filter_by_camera(self):
         self.client.login(username=self.test_user, password=self.test_password)
-
-        response = self.client.get(f'/archive?cat_det=True&car_det=True&chiken_det=True&human_det=True&date_created={self.date_string}', follow=True)
+        response = self.client.get(f'/archive?camera_id={self.test_camera}', follow=True)
         self.assertEqual(str(response.context['user']), self.test_user)
         self.assertEqual(response.status_code, 200)
-        self.assertTrue('videos' in response.context)
-        self.assertEqual(len(response.context['videos']), 0)
+        self.assertTrue('page_obj' in response.context)
+        self.assertEqual(len(response.context['page_obj']), 1)
+    
+    def test_no_video_with_new_camera(self):
+        self.client.login(username=self.test_user, password=self.test_password)
+        response = self.client.get(f'/archive?camera_id={self.wrong_camera}', follow=True)
+        self.assertEqual(str(response.context['user']), self.test_user)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue('page_obj' in response.context)
+        self.assertEqual(len(response.context['page_obj']), 0)
 
+    def test_full_query(self):
+        self.client.login(username=self.test_user, password=self.test_password)
+        response = self.client.get(f'/archive?camera_id={self.test_camera}cat_det=True&car_det=True&chiken_det=True&human_det=True&date_created={self.date_string}', follow=True)
+        self.assertEqual(str(response.context['user']), self.test_user)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue('page_obj' in response.context)
+        self.assertEqual(len(response.context['page_obj']), 0)
         test_video = ArchiveVideo.objects.get(pk=self.test_video_pk)
         test_video.cat_det = True
         test_video.human_det = True
@@ -264,150 +255,132 @@ class TestArchiveView(TestCase):
         test_video.chiken_det = True
         test_video.date_created = self.current_date
         test_video.save()
-
         response = self.client.get(f'/archive?cat_det=True&car_det=True&chiken_det=True&human_det=True&date_created={self.date_string}', follow=True)
         self.assertEqual(str(response.context['user']), self.test_user)
         self.assertEqual(response.status_code, 200)
-        self.assertTrue('videos' in response.context)
-        self.assertEqual(len(response.context['videos']), 1)
+        self.assertTrue('page_obj' in response.context)
+        self.assertEqual(len(response.context['page_obj']), 1)
 
 
 class TestVideoDetailView(TestCase):    
 
     @classmethod
-    def setUpClass(cls):
-
-        def fake_server():
-            server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            server_sock.bind(('127.0.0.1', 20900))
-            server_sock.listen(10)
-            server_sock.settimeout(1)
-            signal = 'TestS'
-            
-            while signal != 'Stop':
-                signal = cls.sig.get()
-                if signal == 'TestCache':
-                    continue
-                try:
-                    conn, addr = server_sock.accept()
-                except TimeoutError:
-                    pass
-                else:
-                    if signal == 'TestF':
-                        reply = 'failure'
-                    else:
-                        reply = 'success'
-                    msg = conn.recv(1024)
-                    conn.send(reply.encode())
-                    conn.close()
-            
-            server_sock.shutdown(socket.SHUT_RDWR)
-            server_sock.close()
-
-
-        cls.sig = queue.Queue()
-        cls.th = threading.Thread(target=fake_server)
-        cls.th.start()
+    def setUp(cls):
+        cls.current_date = datetime.datetime.now(tz=timezone)
+        cls.date_string = cls.current_date.strftime('%Y-%m-%d')
+        cls.video_name = cls.current_date.strftime("%d_%m_%YT%H_%M_%S") 
         
         cls.test_user = 'test_user_1'
         cls.test_password = '1X<ISRUkw+tuK'
-        cls.current_date = datetime.datetime.now(tz=timezone)
-        cls.date_string = cls.current_date.strftime('%Y-%m-%d')
-        cls.video_name = cls.current_date.strftime("%d_%m_%YT%H_%M_%S")
         test_user = User.objects.create_user(username=cls.test_user,
                                              password=cls.test_password,
                                              is_active=True,)
         test_user.save()
+        cls.test_camera_pk = Camera.objects.create(camera_name = 'test',
+                                                is_active = True,).pk
+        cls.request = {'request_type':'video_request', 'video_name':(cls.video_name + '|' + cls.test_camera_pk)}
+        camera = Camera.objects.get(pk=cls.test_camera_pk)
         cls.test_video_pk = ArchiveVideo.objects.create(
                                     date_created=cls.current_date,
                                     human_det = False,
                                     chiken_det = False,
                                     cat_det = False,
-                                    car_det = False
-                                    ).pk
+                                    car_det = False,
+                                    camera = camera,
+                                    ).pk        
         cls.test_object = VideoDetailView()
-
+    
     @classmethod
     def tearDown(self):
         name = self.current_date.strftime("%d_%m_%YT%H_%M_%S")
         cache.delete(name)
         for item in CachedVideo.objects.all():
-            item.delete()   
+            item.delete()
 
-    @classmethod
-    def tearDownClass(cls):
-        cls.sig.put('Stop')
-        cls.th.join()
-        users = User.objects.all()
-        for user in users:
-            user.delete()
-
-    def test_GET_anonymous_user(self):        
-        response = self.client.get(f'/archive/{self.test_video_pk}', follow=True)
-        self.assertRedirects(response, f'/accounts/login/?next=/archive/{self.test_video_pk}')
-
-
-    def test_GET_authenticated_user(self):
-        self.sig.put('TestS')
-        self.client.login(username=self.test_user, password=self.test_password)
-        response = self.client.get(f'/archive/{self.test_video_pk}')
-        self.assertEqual(str(response.context['user']), self.test_user)
-        self.assertEqual(response.status_code, 200)
-
-    def test_view_uses_correct_template(self):
-        self.sig.put('TestS')        
-        self.client.login(username=self.test_user, password=self.test_password)
-        response = self.client.get(f'/archive/{self.test_video_pk}')
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(str(response.context['user']), self.test_user)
-        self.assertTemplateUsed(response, 'main/archivevideo_detail.html')
-
-    def test_success_without_cache(self):
-        self.sig.put('TestS')
-        self.client.login(username=self.test_user, password=self.test_password)
-        response = self.client.get(f'/archive/{self.test_video_pk}')
-        self.assertIn('video_name', response.context)
-        self.assertIsNotNone(response.context['video_name'])
-
-    def test_success_with_cache(self):
-        self.sig.put('TestCache')
+    def test_get_context_data_request_video_with_cache(self):
         self.test_cached_video_pk = CachedVideo.objects.create(name = self.video_name,
                                                                date_expire = self.current_date + 
                                                                datetime.timedelta(days=10))        
         cache.set(self.video_name, True, timeout=60)
-        self.client.login(username=self.test_user, password=self.test_password)
-        response = self.client.get(f'/archive/{self.test_video_pk}')
-        self.assertIn('video_name', response.context)
-        self.assertIsNotNone(response.context['video_name'])
- 
-    def test_failure_without_cache(self):
-        self.sig.put('TestF')
-        self.client.login(username=self.test_user, password=self.test_password)
-        response = self.client.get(f'/archive/{self.test_video_pk}')
-        self.assertIn('video_name', response.context)
-        self.assertIsNone(response.context['video_name'])
-
-    def test_correctly_add_item_to_cache(self):
-        self.sig.put('TestS')
-        self.client.login(username=self.test_user, password=self.test_password)
-        response = self.client.get(f'/archive/{self.test_video_pk}')
-        self.assertTrue(cache.get(self.video_name))
+        with patch('main.views.VideoDetailView.request_video') as request:
+            request.return_value = True
+            self.client.login(username=self.test_user, password=self.test_password)
+            response = self.client.get(f'/archive/{self.test_video_pk}')
+            self.assertIn('video_name', response.context)
+            self.assertIsNotNone(response.context['video_name'])
+            request.assert_not_called()
     
-    def test_correctly_add_item_to_CachedVideo_model(self):
-        self.sig.put('TestS')
-        self.client.login(username=self.test_user, password=self.test_password)
-        response = self.client.get(f'/archive/{self.test_video_pk}')
-        self.assertEqual(1, len(CachedVideo.objects.all()))
+    def test_call_update_cache(self):        
+        self.test_cached_video_pk = CachedVideo.objects.create(name = self.video_name,
+                                                               date_expire = self.current_date + 
+                                                               datetime.timedelta(days=10))        
+        cache.set(self.video_name, True, timeout=60)
+        with patch('main.views.update_cache') as update_cache:
+            self.client.login(username=self.test_user, password=self.test_password)
+            response = self.client.get(f'/archive/{self.test_video_pk}')
+            update_cache.assert_called_once()
 
-    def test_request_video_success(self):    
-        mock_socket = Mock()   
+    def test_get_context_data_success_request_video_without_cache(self):
+        with patch('main.views.VideoDetailView.request_video') as request:
+            request.return_value = True
+            self.client.login(username=self.test_user, password=self.test_password)
+            response = self.client.get(f'/archive/{self.test_video_pk}')
+            self.assertIn('video_name', response.context)
+            self.assertIsNotNone(response.context['video_name'])
+            request.assert_called_once()
+
+    def test_get_context_data_failure_request_video_without_cache(self):
+        with patch('main.views.VideoDetailView.request_video') as request:
+            request.return_value = False
+            self.client.login(username=self.test_user, password=self.test_password)
+            response = self.client.get(f'/archive/{self.test_video_pk}')
+            self.assertIn('video_name', response.context)
+            self.assertIsNone(response.context['video_name'])
+            request.assert_called_once()
+    
+    def test_created_cache_records(self):
+        self.assertEqual(0, len(CachedVideo.objects.all()))
+        with patch('main.views.VideoDetailView.request_video') as request:
+            request.return_value = True
+            self.client.login(username=self.test_user, password=self.test_password)
+            response = self.client.get(f'/archive/{self.test_video_pk}')
+            self.assertEqual(1, len(CachedVideo.objects.all()))
+    
+    def test_GET_anonymous_user(self):
+        with patch('main.views.VideoDetailView.request_video') as request:
+            request.return_value = True
+            response = self.client.get(f'/archive/{self.test_video_pk}', follow=True)
+            self.assertRedirects(response, f'/accounts/login/?next=/archive/{self.test_video_pk}')
+
+    def test_GET_authenticated_user(self):
+        with patch('main.views.VideoDetailView.request_video') as request:
+            request.return_value = True
+            self.client.login(username=self.test_user, password=self.test_password)
+            response = self.client.get(f'/archive/{self.test_video_pk}')
+            self.assertEqual(str(response.context['user']), self.test_user)
+            self.assertEqual(response.status_code, 200)
+
+    def test_view_uses_correct_template(self):
+        with patch('main.views.VideoDetailView.request_video') as request:
+            request.return_value = True
+            self.client.login(username=self.test_user, password=self.test_password)
+            response = self.client.get(f'/archive/{self.test_video_pk}')
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(str(response.context['user']), self.test_user)
+            self.assertTemplateUsed(response, 'main/archivevideo_detail.html')
+
+    def test_request_video_success(self):   
+        mock_socket = Mock()
+        VideoDetailView.connect_to_server = Mock(return_value=mock_socket)
         mock_socket.recv.return_value = b'success'
-        response = self.test_object.request_video(video_name=self.video_name, sock=mock_socket)
+        response = self.test_object.request_video(self.request)
         self.assertTrue(response)
+        mock_socket.recv.assert_called_once()
 
-    def test_request_video_failure(self):       
-        mock_socket = Mock()   
+    def test_request_video_failure(self):
+        mock_socket = Mock()
+        VideoDetailView.connect_to_server = Mock(return_value=mock_socket)
         mock_socket.recv.return_value = b'failure'
-        response = self.test_object.request_video(video_name=self.video_name, sock=mock_socket)
+        response = self.test_object.request_video(self.request)
         self.assertFalse(response)
+        mock_socket.recv.assert_called_once()

@@ -1,100 +1,85 @@
-import socket
-import asyncio
 import queue
-import os
 import json
-import struct
-from asgiref.sync import async_to_sync
-from .utils import check_named_thread, recv_package
-from channels.generic.websocket import AsyncWebsocketConsumer
-from channels.exceptions import StopConsumer
-import logging
-
-logging.basicConfig(level=logging.DEBUG,
-                    format="%(name)s | %(levelname)s | %(asctime)s | %(message)s",
-                    datefmt="%Y-%m-%dT%H:%M:%S",
-                    )
-
-consumers = {'1':queue.Queue(), '2':queue.Queue(), '3':queue.Queue(), '4':queue.Queue()}
-
-@check_named_thread
-def camera_source(camera_name):
-    payload_size = struct.calcsize("Q")
-    data = b"" 
-    consumer_list = []
-    camera_name = str(camera_name)
-
-    isock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    isock.connect((os.environ.get('INTERNAL_HOST', '127.0.0.1'), int(os.environ.get('INTERNAL_PORT', 20900))))    
-    msg = {'request_type':'stream_request', 'camera_name':camera_name}
-    isock.send(json.dumps(msg).encode())
-
-    while True:
-        while consumers[camera_name].qsize() > 0:                
-            consumer_list.append(consumers[camera_name].get())    
-            logging.debug('get consumer. %s', consumer_list[0])
-
-        isock, frame_data, data, connection_failure = recv_package(
-                                                                isock,
-                                                                data, 
-                                                                payload_size,
-                                                                )
-        if connection_failure:
-            break
-        logging.debug('Frame received') 
-        if consumer_list:
-            logging.debug('consumer list get')
-            for consumer in consumer_list:
-                if consumer[0].qsize() == 0 and consumer[1].qsize() == 0:
-                    consumer[0].put(frame_data)
-                elif consumer[1].qsize() > 0:
-                    consumer_list.remove(consumer)
-                    logging.debug('Consumer removed')
-        else:
-            logging.debug('NO consumers')
-            break
-    logging.debug('CLOSE SOCKET')
-    isock.close()
+import threading
+from channels.generic.websocket import WebsocketConsumer
+from .utils import new_thread
 
 
-class VideoStreamConsumer(AsyncWebsocketConsumer):
+class VideoStreamConsumer(WebsocketConsumer):
 
-    def __init__(self, *args, **kwargs):      
-        self.connected = True
-        self.loop = asyncio.get_running_loop()
-        self.sync_send = async_to_sync(self.send)
+    def __init__(self, *args, **kwargs):
+        self.manager = kwargs['manager']
+        self._pause_stream = threading.Event()
+        self._disconnected = threading.Event()
         self.frame = queue.Queue(maxsize=1)
-        self.signal = queue.Queue(maxsize=1)
-        super().__init__(*args, **kwargs)        
+        super().__init__(*args, **kwargs)
+    
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        del state['frame'],
+        del state['_disconnected'],
+        del state['_pause_stream'],
+        return state
 
+    def __setstate__(self, state):        
+        self.__dict__.update(state)
+        self.frame = queue.Queue(maxsize=1)
+        self._pause_stream = threading.Event()
+        self._disconnected = threading.Event()
+
+    def is_disconnected(self):
+        return self._disconnected.is_set()
+    
+    def end_consumer(self):
+        self._disconnected.set()
+
+    def pause_stream(self):
+        self._pause_stream.set()
+    
+    def play_stream(self):
+        self._pause_stream.clear()
+
+    def is_paused(self):
+        return self._pause_stream.is_set()
+
+    def get_frame(self):
+        try:
+            frame = self.frame.get(timeout=5)
+        except:
+            self.pause_stream()
+            return None
+        else:
+            return frame
+
+    @new_thread
     def videostream(self):
-        while self.connected:
-            try:
-                frame = self.frame.get(timeout=1)
-            except:
-                self.connected = False
-            else:
-                self.sync_send(frame.decode('utf-8'))
-
-    async def connect(self):
+        while not self.is_paused():
+            frame = self.get_frame()
+            if frame:
+                try:
+                    self.send(frame.decode('utf-8'))
+                except:
+                    self.pause_stream()
+    
+    @new_thread
+    def connect(self):
         self.camera_name = self.scope["url_route"]["kwargs"]["camera_name"]
-        camera_source(self.camera_name)
-        consumers[str(self.camera_name)].put((self.frame, self.signal))
-        self.connected = True
-        await self.accept()        
-        self.loop.run_in_executor(None, self.videostream)
-       
-    async def disconnect(self, close_code):
-        self.connected = False
-        self.signal.put('remove consumer')
-        await self.close()
-        raise StopConsumer()
+        self.manager.consumer_queue.put(self)
+        self.videostream()
+        self.accept()
 
-    async def receive(self, text_data):
+    @new_thread
+    def disconnect(self, close_code):
+        self.pause_stream()
+        self.end_consumer()
+        self.close()
+    
+    @new_thread
+    def receive(self, text_data):
         request = json.loads(text_data)
         signal = request['signal']
         if signal == 'pause':
-            self.connected = False
-        elif signal == 'play' and self.connected == False:
-            self.connected = True
-            self.loop.run_in_executor(None, self.videostream)
+            self.pause_stream()
+        elif signal == 'play' and self.is_paused():
+            self.play_stream()
+            self.videostream()

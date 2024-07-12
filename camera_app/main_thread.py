@@ -1,5 +1,4 @@
 import cv2
-import socket
 import os
 import queue
 import configparser
@@ -11,11 +10,10 @@ import smtplib
 import ssl
 import pytz
 import logging
-import time
 import base64
-from itertools import cycle
+import threading
 from pathlib import Path
-from utils import check_thread, new_thread
+from utils import check_thread, new_thread, get_connection
 from ultralytics import YOLO
 from datetime import date, datetime
 from email.mime.text import MIMEText
@@ -30,17 +28,17 @@ logging.basicConfig(level=logging.DEBUG,
 
 class ClientRequest:
 
-    def __init__(self, request_type, 
-                 video_name=None, 
-                 video_size=None, 
-                 username=None, 
+    def __init__(self, request_type,
+                 video_name=None,
+                 video_size=None,
+                 username=None,
                  email=None,
                  request_result=None,
                  db_record=None,
                  camera_name=None,
-                 connection=None,
-                 address=None,
-                 lifetime=10):
+                 #connection=None,
+                 #address=None,
+                 ):
         
         self.request_type = request_type
         self.video_name = video_name
@@ -49,12 +47,11 @@ class ClientRequest:
         self.email = email
         self.request_result = request_result
         self.db_record = db_record
-        self.camera_name = camera_name
-        self.connection = connection
-        self.address = address
-        self.lifetime = lifetime
+        self.camera_name = str(camera_name)
+        #self.connection = connection
+        #self.address = address
 
-    def __eq__(self ,other):
+    def __eq__(self, other):
         SameObject = isinstance(other, self.__class__)
         if SameObject:
             return True
@@ -66,57 +63,258 @@ class ClientRequest:
             (self.request_result == other.request_result) and \
             (self.db_record == other.db_record) and \
             (self.camera_name == other.camera_name):
+            #(self.connection == other.connection) and \
+            #(self.address == other.address):
             return True
-        else:
-            return False
+        return False
 
 
-class Camera:
+class CameraSource:
 
-    def __init__(self, camera_source, serial_number):
+    def __init__(self, camera_source, camera_name, server_address='127.0.0.1', server_port=10900):
         self.camera_source = camera_source
-        self.camera_name = serial_number
-        self.frame_queue = queue.Queue(maxsize=1)
-
-
-class CameraClient:
-
-    def __init__(self, config):
-        self.frame_queue = queue.Queue(maxsize=1)
-        self.signal_queue = queue.Queue(maxsize=1)
-        self.test_queue = queue.Queue()
-        self.server_address = config['DEFAULT']['SERVER_ADRESS']
-        self.server_port = int(config['DEFAULT']['SERVER_PORT'])
-        self.handlers = self.get_handlers()
-        self.buff_size = 4096
-        self.user_list = config['USER_LIST']['USER_LIST'].split(' ')
-        self.email_user = config['EMAIL']['EMAIL_USER']
-        self.email_password = config['EMAIL']['EMAIL_PASSWORD']
-        self.email_port = config['EMAIL']['EMAIL_PORT']
-        self.email_backend = 'smtp.gmail.com'
-        self.base_dir = Path(__file__).resolve().parent.parent
-        self.model_path = self.base_dir / 'camera_app/weights/test_weights.pt'
-        self.save_path = self.base_dir / 'video_archive/'
-        self.DEBUG = False
-        self.timezone = pytz.timezone('Europe/Moscow')
-        self.SAVE_VIDEO = False
-        self.DETECTION = False
+        self.camera_name = camera_name
         self.model = None
-        self.APROVE_ALL = bool(config['USER_LIST']['APROVE_ALL'])        
+        self.base_dir = Path(__file__).resolve().parent.parent
+        self.model_path = self.base_dir / 'camera_app/weights/test_weights.pt'        
+        self.save_path = self.base_dir / ('video_archive/' + self.camera_name + '/')
+        self.frame_queue = queue.Queue(maxsize=1)
+        self.buff_size = 1000
+        self._thread_working = threading.Event()
+        self._thread_working.set()
+        self._thread_dead = threading.Event()
+        self._thread_dead.set()
+        self._detection = {'car_det':False, 'cat_det':False, 'chiken_det':False, 'human_det':False}
+        self._counter = 0
+        self.no_detection_time = 100
+        self._obj_detected = False
+        self.timezone = pytz.timezone('Europe/Moscow')
+        self.DEBUG = False
+        self.server_address = server_address
+        self.server_port = server_port
 
+        if not os.path.isdir(self.save_path):
+            os.mkdir(self.save_path)
+    
     def __getstate__(self):
         state = self.__dict__.copy()
         del state['frame_queue']
-        del state['signal_queue']
-        del state['test_queue']
+        del state['save_queue']
+        del state['_thread_working']
+        del state['_thread_dead']
         return state
 
     def __setstate__(self, state):
         self.__dict__.update(state)
         self.frame_queue = queue.Queue(maxsize=1)
-        self.signal_queue = queue.Queue(maxsize=1)
-        self.test_queue = queue.Queue()
+        self._thread_working = threading.Event()
+        self._thread_dead = threading.Event()
+    
+    def thread_dead(self):
+        self._thread_dead.set()
 
+    def thread_working(self):
+        return self._thread_working.is_set()
+    
+    def kill_thread(self):
+        self._thread_working.clear()
+        self._thread_dead.wait()
+
+    def run_thread(self):
+        self._thread_working.set()
+        self._thread_dead.clear()
+        self.videostream()
+
+    def get_model(self):
+        self.model = YOLO(self.model_path)
+    
+    def update_detection(self, results):
+        for r in results:
+            for c in r.boxes.cls:
+                if not self._detection[self.model.names[int(c)]]:
+                    self._detection[self.model.names[int(c)]] = True
+
+    def reset_detection_and_counter(self):
+        self._detection = {'car_det':False, 'cat_det':False, 'chiken_det':False, 'human_det':False}
+        self._counter = 0
+        self._obj_detected = False
+
+    @new_thread
+    def camera_thread(self):
+        log = logging.getLogger(self.camera_name)
+        log.info('CAMERA SOURCE %s', self.camera_source)        
+        cap = cv2.VideoCapture(self.camera_source)
+        self.get_model()
+        frames_to_save = []
+        if self.model:
+            log.debug('Get model')
+            while cap.isOpened():
+                success, frame = cap.read()
+                """
+                if success:
+                    results = self.model(frame, conf=0.0001)
+                    if results[0]:
+                        self.update_detection(results)
+                        self._obj_detected = True
+                        self._counter = 0
+                        log.debug('%s', self._detection)
+                    elif self._obj_detected:
+                        self._counter += 1
+                
+                    if self._counter >= self.no_detection_time:
+                        log.debug('Reset counter and detection dict')
+                        self.reset_detection_and_counter()
+                                    
+                    if self._obj_detected and (len(frames_to_save) < self.buff_size):
+                        frames_to_save.append(frame)
+                    elif self._obj_detected:
+                        log.debug('Save video')
+                        current_time = datetime.now(tz=self.timezone)
+                        self.save_video(frames_to_save, self._detection, current_time)
+                        self.reset_detection_and_counter()
+                        frames_to_save = []
+
+                    if self.frame_queue.qsize() == 0:
+                        self.frame_queue.put(frame)
+                
+                    cv2.imshow("YOLOv8 Inference", frame)
+                    if cv2.waitKey(1) & 0xFF == ord("q"):
+                        break
+                else:
+                    break
+                    """
+                if success:
+
+                    if self.frame_queue.qsize() == 0:
+                        self.frame_queue.put(frame)
+                
+                    cv2.imshow("YOLOv8 Inference", frame)
+                    if cv2.waitKey(1) & 0xFF == ord("q"):
+                        break
+                else:
+                    break
+            log.debug('Thread ended')
+            cap.release()
+            cv2.destroyAllWindows()
+    
+    @new_thread
+    def videostream(self):
+        log = logging.getLogger(self.camera_name)
+        log.info('Thread started')
+        request = ClientRequest(request_type='stream_source', camera_name=self.camera_name)
+        log.debug('Connecting to server')
+        stream_sock = get_connection(request,
+                                    attempts_num=1,
+                                    server_address=self.server_address,
+                                    server_port=self.server_port)
+
+        if stream_sock:
+            log.debug('Connected to server. Stream begin')
+            while self.thread_working():
+                try:
+                    frame = self.frame_queue.get(timeout=1)
+                except:
+                    continue
+                else:
+                    message = self.convert_frame(frame)
+                    try:
+                        stream_sock.sendall(message)
+                        log.debug("SEND FRAME %s", len(message))
+                    except Exception as error:                        
+                        log.error('Connection to server broken:%s', error)
+                        break
+            stream_sock.close()
+
+        self.thread_dead()
+        log.info('Stream ended')
+    
+    def convert_frame(self, frame):
+        ret, jpeg = cv2.imencode('.jpg', frame)
+        b64_img = base64.b64encode(jpeg)
+        message = struct.pack("Q",len(b64_img)) + b64_img    
+        return message
+
+    @new_thread
+    def save_video(self, frames_to_save, new_item, current_time):
+        if self.DEBUG:
+            filename = 'test.json'
+        else:
+            filename = 'records.json'
+        log = logging.getLogger('Save video')
+        log.debug('Thread started, video length: %s, detection: %s', len(frames_to_save), new_item)
+        today = date.today()
+        today_save_path = self.save_path / (today.strftime("%d_%m_%Y") + '/')
+        log.debug('Save path: %s', today_save_path)    
+        if not os.path.isdir(today_save_path):
+            os.mkdir(today_save_path)
+
+        video_name = os.path.join(today_save_path,current_time.strftime("%d_%m_%YT%H_%M_%S") + '.mp4')
+        log.debug('video name: %s', video_name)
+        torchvision.io.write_video(video_name, numpy.array(frames_to_save), 10)   
+
+        new_item['date_created'] = current_time.isoformat()
+        new_item['camera_id'] = self.camera_name
+        log.debug('new_record: %s', new_item)
+        new_record = json.dumps(new_item)
+        sock = get_connection(ClientRequest(request_type='new_record',
+                                            db_record='new_item'), 
+                                attempts_num=1,
+                                server_address=self.server_address,
+                                server_port=self.server_port)
+
+        if sock:
+            try:
+                sock.send(new_record.encode())
+            except BrokenPipeError or ConnectionResetError:
+                log.error('Failed to sent record to server')
+                with open((self.base_dir / filename), 'a') as outfile:
+                    outfile.write(new_record + '\n')
+            else:
+                log.info('Successfully send record to server')
+            sock.close()
+
+
+class CameraClient:
+
+    def __init__(self, config):
+        self.DEBUG = False
+        self.config = config
+        self.stream_request_queue = queue.Queue()
+        self.server_address = self.config['SERVER']['SERVER_ADRESS']
+        self.server_port = int(self.config['SERVER']['SERVER_PORT'])
+        self.handlers = self.get_handlers()
+        self.buff_size = 4096
+        self.base_dir = Path(__file__).resolve().parent.parent
+        self.save_path = self.base_dir / 'video_archive/'
+        self.user_list = self.config['USER_LIST']['USER_LIST'].split(' ')
+        self.email_user = self.config['EMAIL']['EMAIL_USER']
+        self.email_password = self.config['EMAIL']['EMAIL_PASSWORD']
+        self.email_port = self.config['EMAIL']['EMAIL_PORT']
+        self.email_backend = 'smtp.gmail.com'        
+        self.APROVE_ALL = bool(self.config['USER_LIST']['APROVE_ALL'])
+        self.camera_sources = {}
+        self._videostream_manager = threading.Event()
+
+    def __getstate__(self):
+        state = self.__dict__.copy()
+        del state['stream_request_queue']
+        del state['_videostream_manager']
+        return state
+
+    def __setstate__(self, state):
+        self.stream_request_queue = queue.Queue()
+        self._videostream_manager = threading.Event()
+        self.__dict__.update(state)
+
+    def run_videostream_manager(self):
+        self._videostream_manager.clear()
+    
+    def kill_videostream_manager(self):
+        self._videostream_manager.set()
+
+    def videostream_manager_running(self):
+        return not self._videostream_manager.is_set()
+    
     def get_handlers(self):
         handler_list = [method for method in CameraClient.__dict__ 
                        if callable(getattr(CameraClient, method)) 
@@ -126,57 +324,15 @@ class CameraClient:
             handlers[item[8:]] = getattr(CameraClient, item)        
         return handlers
 
-    def get_model(self):
-        self.model = YOLO(self.model_path)
-
-    def get_connection(self, request, attempts_num=0):
-        log = logging.getLogger('Get connection')
-        counter = cycle([1]) if attempts_num == 0 else range(0,attempts_num)
-        log.info('Request type: %s', request.request_type)
-        for i in counter:        
-            try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                log.info('Connecting to %s:%s', self.server_address, self.server_port)
-                sock.connect((self.server_address, self.server_port))
-            except socket.error as err:
-                log.error('Failed to connect: %s', err)
-                sock.close()  
-                time.sleep(5)          
-                continue
-            else:  
-                log.info('Successfully connected to %s:%s', self.server_address, self.server_port)          
-                try:
-                    sock.send(json.dumps(request.__dict__).encode())
-                except BrokenPipeError or ConnectionResetError:
-                    log.error('Connection broken. Reconnectiong ...')
-                    sock.close()
-                    time.sleep(5)
-                    continue
-                else:
-                    try:
-                        reply = sock.recv(self.buff_size)
-                    except OSError:
-                        sock.close()
-                        time.sleep(5)
-                        continue
-                    else:
-                        if reply.decode() == 'accepted':
-                            log.info('Connection established')
-                            return sock
-                        else:
-                            sock.close()
-                            time.sleep(5)
-                            continue
-
-        log.error('Connection failed')
-        return None
-
     @check_thread
     def signal_connection(self):
         log = logging.getLogger('Signal connection')        
         while True:
             request = ClientRequest(request_type='signal')
-            sock = self.get_connection(request, 1)
+            sock = get_connection(request,
+                              attempts_num=1,
+                              server_address=self.server_address,
+                              server_port=self.server_port)
             if sock:
                 while True:
                     log.info('Waiting for a message')
@@ -188,7 +344,7 @@ class CameraClient:
                         break
                     else:
                         log.debug('MESSAGE:%s', reply.decode())
-                        msg_list = reply.decode().split('|')
+                        msg_list = reply.decode().split('\n')
                         for msg in msg_list:
                             log.info('Signal list: %s', msg_list)
                             if msg != '':
@@ -199,41 +355,18 @@ class CameraClient:
                             if request.request_type in self.handlers.keys():
                                 log.info('Calling handler: %s', request.request_type)
                                 self.handlers[request.request_type](self, request)
-                                request = None
-                            else:                                
-                                if self.DEBUG:
-                                    self.test_queue.put('Wrong request')
+                            request = None
                         log.info('No new messages')
                         if self.DEBUG:
                                 break
                 if self.DEBUG:
-                    self.test_queue.put('Handler called')
                     break
-
-    def handler_stop(self, request):
-        log = logging.getLogger('Handler signal')
-        log.info('Put request to the queue')
-        self.signal_queue.put(request)
 
     def handler_corrupted_record(self, request):
         log = logging.getLogger('Handler corrupted records')        
         with open('db.json', 'a') as outfile:
             outfile.write(request.db_record + '\n')
         log.info('Records saved')
-        if self.DEBUG:
-            self.test_queue.put('Records saved')
-    
-    def handler_restart_stream(self, request):
-        self.handler_stream(request)
-    
-    def convert_frame(self, frame):
-        ret, jpeg = cv2.imencode('.jpg', frame)
-        b64_img = base64.b64encode(jpeg)
-        message = struct.pack("Q",len(b64_img)) + b64_img
-        #ret, jpeg = cv2.imencode('.jpg', frame)
-        #data_bytes = jpeg.tobytes() 
-        #message = struct.pack("Q",len(data_bytes)) + data_bytes        
-        return message
 
     @new_thread
     def handler_aprove_user_request(self, request):
@@ -254,11 +387,11 @@ class CameraClient:
                                     request_result='denied')
             log.info('%s denied', username)              
             self.send_email(username, email, False)
-        sock = self.get_connection(request, 1)
+        sock = get_connection(request,
+                              attempts_num=1,
+                              server_address=self.server_address,
+                              server_port=self.server_port)
         sock.close()
-
-        if self.DEBUG:
-            self.test_queue.put('thread worked')
 
     def send_email(self, username, email, result):
         message = MIMEMultipart('alternative')
@@ -307,220 +440,84 @@ class CameraClient:
             server.sendmail(self.email_user, email, message.as_string())
 
     @new_thread
-    def handler_video_request(self, request):
+    def handler_video(self, request):
         log = logging.getLogger('Handler video request')
         log.info('thread started')
-        full_video_name = self.save_path / (request.video_name.split('T')[0] + '/' + request.video_name + '.mp4')
-
+        video_name = request.video_name.split('|')[0]
+        camera_name = request.video_name.split('|')[1]
+        log.debug('Video name:%s, Camera name: %s', video_name, camera_name)
+        full_video_name = self.save_path / (camera_name + '/' + video_name.split('T')[0] + '/' + video_name + '.mp4')
+        log.debug('Full video name^ %s', full_video_name)
+        
         if os.path.exists(full_video_name):
             with open(full_video_name, "rb") as video:
                 video_bytes = video.read()
                 log.debug('video length: %s', len(video_bytes))
-                sock = self.get_connection(ClientRequest(request_type='video_response',
+                sock = get_connection(ClientRequest(request_type='video_response',
                                            video_name=request.video_name,
-                                           video_size=str(len(video_bytes))), 1)
+                                           video_size=str(len(video_bytes))), 
+                                        attempts_num=1,
+                                        server_address=self.server_address,
+                                        server_port=self.server_port)
                 sock.sendall(video_bytes)            
         else:
-            sock = self.get_connection(ClientRequest(request_type='video_response',
+            sock = get_connection(ClientRequest(request_type='video_response',
                                            video_name=request.video_name,
-                                           video_size=0), 1)
-            log.error('No such video %s', request.video_name)
-            self.test_queue.put('no such video')
+                                           video_size=0), 
+                                        attempts_num=1,
+                                        server_address=self.server_address,
+                                        server_port=self.server_port)
+            log.error('No such video %s', full_video_name)
         sock.close()
         log.info('Thread ended')
-        if self.DEBUG:
-            self.test_queue.put('video sended')
 
-    @check_thread
-    def camera_thread(self):
-        cap = cv2.VideoCapture(-1)
-        frames_to_save = []
-        empty_frame_counter = 0
-        detection = False
-        self.get_model()
-
-        while cap.isOpened():
-
-            success, frame = cap.read()        
-
-            if success:
-                
-                if self.DETECTION:
-                    results = self.model(frame,conf=0.5)
-            
-                    if results[0]:
-                        empty_frame_counter = 0
-                        detection = True
-                        annotated_frame = results[0].plot()            
-                    else:
-                        if detection:
-                            empty_frame_counter += 1
-                        annotated_frame = frame
-                else:
-                    annotated_frame = frame
-                if self.frame_queue.empty():                
-                    self.frame_queue.put(annotated_frame)      
-            
-                cv2.imshow("YOLOv8 Inference", annotated_frame)
-
-                if detection:
-                    frames_to_save.append(annotated_frame)
-
-                """
-                if empty_frame_counter > 20 and detection == True:
-                    save_video()            
-                    frames_to_save = []
-                    detection = False
-                    #break
-                """
-                if cv2.waitKey(1) & 0xFF == ord("q"):
-                    break
-            else:
-                break    
-        cap.release()
-        cv2.destroyAllWindows()
-
-    @new_thread
-    def save_video(self, frames_to_save):
-        log = logging.getLogger('Save video')
-        log.debug('Thread started')
-        today = date.today()
-        today_save_path = self.save_path / (today.strftime("%d_%m_%Y") + '/')
-        log.debug('Save path: %s', today_save_path)
+    def run_client(self):
+        self.get_camera_sources()
+        self.init_camera()
+        self.signal_connection()
     
-        if not os.path.isdir(today_save_path):
-            os.mkdir(today_save_path)
-
-        current_date = datetime.now(tz=self.timezone)
-        video_name = os.path.join(today_save_path,current_date.strftime("%d_%m_%YT%H_%M_%S") + '.mp4')
-        log.debug('video name: %s', video_name)
-        torchvision.io.write_video(video_name,numpy.array(frames_to_save),10)   
-
-        new_item = {}
-        new_item['date_created'] = current_date.isoformat()
-        new_item['human_det'] = True
-        new_item['cat_det'] = False
-        new_item['car_det'] = False
-        new_item['chiken_det'] = False
-        log.debug('new_record: %s', new_item)
-        new_record = json.dumps(new_item)   
-
-        sock = self.get_connection(ClientRequest(request_type='new_record',
-                                                 db_record=new_item), 1)
+    def init_camera(self):
+        request = ClientRequest(request_type='new_record', camera_name='1')
+        sock = get_connection(request,
+                              attempts_num=1,
+                              server_address=self.server_address,
+                              server_port=self.server_port)
+        records = ''
+        for camera in self.camera_sources.keys():
+            logging.info('%s',camera)
+            records += json.dumps({'camera_name':str(camera)}) + "\n"
+            logging.debug('Starting camera thread %s', camera)
+            self.camera_sources[camera].camera_thread()
 
         if sock:
             try:
-                sock.send(new_record.encode())
-            except BrokenPipeError or ConnectionResetError:
-                log.error('Failed to sent record to server')
-                sock.close()
-                with open('db.json', 'a') as outfile:
-                    outfile.write(new_record + '\n')
-            else:
-                log.info('Successfully send record to server')
-                sock.close()
-
-    def run_client(self):
-        self.get_camera_list()
-        self.signal_connection()
-        self.camera_thread(self.camera_list[0])
-    
-    def init_camera(self):
-        request = ClientRequest(request_type='init_camera')
-        sock = self.get_connection(request, 1)
-        records = ''
-        for camera in self.camera_list:
-            records =+ json.dumps(camera.__dict__) + '|'
-        sock.send(records.encode())
+                sock.send(records.encode())
+            except:
+                pass
+            sock.close()
 
     def handler_stream(self, request):
-        for camera in self.camera_list:
-            self.videostream(camera)
+        self.stream_request_queue.put(request)
+        self.videostream_manager()
 
-    @new_thread
-    def videostream(self, camera):
-        log = logging.getLogger(str(camera.camera_name))
-        log.info('Thread started')
-        signal = ''
+    def get_camera_sources(self):
+        camera_list = self.config['CAMERA_LIST'].keys()
+        logging.debug('%s', camera_list)
+        for camera in camera_list:
+            self.camera_sources[camera] = CameraSource(int(self.config['CAMERA_LIST'][camera]), camera, self.server_address, self.server_port)
+            logging.debug('Camera name:%s, Camera source:%s', camera, self.config['CAMERA_LIST'][camera])
 
-        request = ClientRequest(request_type='stream_source', camera_name=str(camera.camera_name))
-        log.debug('Connecting to server')
-        stream_sock = self.get_connection(request, 1)
-        if stream_sock:
-            log.debug('Connected to server. Stream begin')
-            while True:
-                frame = camera.frame_queue.get(timeout=1)
-                message = self.convert_frame(frame)
-                try:
-                    stream_sock.sendall(message)
-                except BrokenPipeError or ConnectionResetError:
-                    signal = 'stop'
-                    break
+    @check_thread
+    def videostream_manager(self):
+        #self.replicator()
+        while self.videostream_manager_running():
+            requester = self.stream_request_queue.get()
+            current_stream_source = self.camera_sources[requester.camera_name]
+            logging.info('KILLING THREAD')
+            current_stream_source.kill_thread()
+            logging.info('STARTING THREAD')
+            current_stream_source.run_thread()
 
-            stream_sock.close()                
-            if self.DEBUG:
-                self.test_queue.put(signal)         
-
-        else:
-            log.error('Failed to connect to server')
-        if self.DEBUG:
-            self.test_queue.put('stream ended')
-        log.info('Stream ended')
-
-    def get_camera_list(self):
-        # { 'camera_name(serial_number)':'camera_address'}
-        # {'123456789':'rtsp://username:password@192.168.1.64/1'}
-        self.camera_list = [Camera(0, 1), Camera(0, 2), Camera(0, 3), Camera(0, 4)]
-
-    @new_thread
-    def camera_thread(self, camera):
-        cap = cv2.VideoCapture(camera.camera_source)
-        frames_to_save = []
-        empty_frame_counter = 0
-        detection = False
-        self.get_model()
-
-        while cap.isOpened():
-
-            success, frame = cap.read()        
-
-            if success:
-                
-                if self.DETECTION:
-                    results = self.model(frame,conf=0.5)
-            
-                    if results[0]:
-                        empty_frame_counter = 0
-                        detection = True
-                        annotated_frame = results[0].plot()            
-                    else:
-                        if detection:
-                            empty_frame_counter += 1
-                        annotated_frame = frame
-                else:
-                    annotated_frame = frame               
-                for camera in self.camera_list: # FOR DEBUG PURPOSE
-                    if camera.frame_queue.qsize() == 0:                
-                        camera.frame_queue.put(annotated_frame)      
-            
-                cv2.imshow("YOLOv8 Inference", annotated_frame)
-
-                if detection:
-                    frames_to_save.append(annotated_frame)
-
-                """
-                if empty_frame_counter > 20 and detection == True:
-                    save_video()            
-                    frames_to_save = []
-                    detection = False
-                    #break
-                """
-                if cv2.waitKey(1) & 0xFF == ord("q"):
-                    break
-            else:
-                break    
-        cap.release()
-        cv2.destroyAllWindows()
 
 if __name__ == '__main__':
     config = configparser.ConfigParser()
