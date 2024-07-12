@@ -5,7 +5,7 @@ import queue
 import threading
 import struct
 from .models import Camera
-
+import logging
 
 def new_thread(target_function):
 
@@ -145,6 +145,7 @@ class VideoStreamSource:
                 if (not self.thread_working()) or packet == b"":
                     return None, None
                 if msg_size > 100000:
+                    logging.critical('EEEEEEEEEEEEEEEEEE')
                     return packet, b""
                 data += packet
 

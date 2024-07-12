@@ -20,7 +20,7 @@ def main_view(request):
         'main/main_page.html',
     )
 
-@login_required
+#@login_required
 def stream_view(request):
     camera_list = Camera.objects.filter(is_active=True)
     simplified_camera_list = []
@@ -58,7 +58,7 @@ def archive_view(request):
         if params:
             videos = videos.filter(**params)
 
-    paginator = Paginator(videos, 2)  
+    paginator = Paginator(videos, 10)
     page_obj = paginator.get_page(page_number)  
     return render(
         request,
@@ -73,7 +73,7 @@ def archive_view(request):
         }
     )
 
-
+import logging
 class VideoDetailView(LoginRequiredMixin, generic.DetailView):
     model = ArchiveVideo
     template_name = 'main/archivevideo_detail.html'
@@ -83,8 +83,10 @@ class VideoDetailView(LoginRequiredMixin, generic.DetailView):
         timeout = int(os.environ.get('CACHE_TIMEOUT', '60'))
         context = super(VideoDetailView, self).get_context_data(**kwargs)
         video = ArchiveVideo.objects.get(pk=self.kwargs['pk'])        
-        video_name = localtime(video.date_created)
-        video_name = video_name.strftime("%d_%m_%YT%H_%M_%S")
+        #video_name = localtime(video.date_created)
+        logging.critical('%s',video.date_created)
+        video_name = localtime(video.date_created).strftime("%d_%m_%YT%H_%M_%S")
+        logging.critical('%s',video_name)
         request = {'request_type':'video_request', 'video_name':(video_name + '|' + video.camera.camera_name)}
         if cache.get(video_name):
             context['video_name'] = video_name

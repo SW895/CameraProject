@@ -14,7 +14,11 @@
         <i class="book icon"></i>  
         Main Page 
       </a>
-
+      <a class="item" href="{% url 'stream' %}">  
+        <i class="tv icon"></i> 
+        LiveStream 
+      </a> 
+      
       {% if user.is_authenticated %}
 
       <a class="item" href="{% url 'stream' %}">  

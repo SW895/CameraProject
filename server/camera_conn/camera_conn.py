@@ -61,6 +61,12 @@ class ServerRequest:
             return True
         return False
 
+    def to_dict(self):
+        result = self.__dict__
+        logging.critical('%s', result)
+        del result['connection']
+        del result['address']
+        return result
 
 class StreamChannel:
 
@@ -140,7 +146,7 @@ class StreamChannel:
         consumer_list = []
 
         if self.wait_source_connection():
-            while self.thread_working() and (self.consumer_number() > 0):            
+            while self.thread_working() and (self.consumer_number() > 0):
                 while self.consumer_queue.qsize() > 0:
                     log.info('Get new consumer')
                     consumer_list.append(self.consumer_queue.get())
@@ -352,29 +358,31 @@ class EchoServer:
                 return
     
     @check_thread
-    def ehandler_signal(self, signal_conn):
+    def ehandler_signal(self, request):
         log = logging.getLogger('Signal thread')
         log.info('Signal thread started')
 
-        self.check_connection(log, signal_conn.connection, 'restart')
-
+        #self.check_connection(log, signal_conn.connection, 'restart')
+        log.debug('%s,%s',request.connection, request.address)
         while True:
             log.info('Waiting for new signal')
             signal = self.signal_queue.get()
             log.info('Get signal:%s', signal.request_type)   
-            if signal.request_type == 'restart':
-                log.warning('Shutting down thread due to received signal')
-                break
+            #if signal.request_type == 'restart':
+                #log.warning('Shutting down thread due to received signal')
+                #break
             try:
                 log.info('Sending signal')
-                message = json.dumps(signal.__dict__ ) + '|'
-                signal_conn.connection.send(message.encode())              
-            except:
-                log.warning('Connection lost. Shutting down thread')
+                message = json.dumps(signal.to_dict()) + '!'
+                log.debug('%s,%s',request.connection, request.address)
+                request.connection.send(message.encode())              
+            except Exception as e:
+                log.debug('%s,%s',request.connection, request.address)
+                log.warning('Connection lost. Shutting down thread %s', e)
                 break
             if self.DEBUG:
                 return  
-        signal_conn.connection.close()
+        request.connection.close()
 
     @new_thread
     def ehandler_new_record(self, request):
@@ -542,8 +550,9 @@ class EchoServer:
             log.error('Failed to connect to DB')
 
     def ihandler_aprove_user_request(self, request):
-        request.connection.close()
+        logging.debug('User Request processing %s', request)
         self.signal_queue.put(request)
+        request.connection.close()
 
     def ihandler_video_request(self, request):
         self.video_requesters_queue.put(request)

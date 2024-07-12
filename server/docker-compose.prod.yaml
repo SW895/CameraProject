@@ -36,7 +36,7 @@ services:
     build:
       context: ./camera_conn
       dockerfile: Dockerfile.cam
-    command: python camera_conn.py
+    command: python async_camera_conn.py
     volumes:
       - ./djbackend/mediafiles:/home/app/web/mediafiles
     env_file:

@@ -36,8 +36,9 @@ class ClientRequest:
                  request_result=None,
                  db_record=None,
                  camera_name=None,
-                 connection=None,
-                 address=None,):
+                 #connection=None,
+                 #address=None,
+                 ):
         
         self.request_type = request_type
         self.video_name = video_name
@@ -47,8 +48,8 @@ class ClientRequest:
         self.request_result = request_result
         self.db_record = db_record
         self.camera_name = str(camera_name)
-        self.connection = connection
-        self.address = address
+        #self.connection = connection
+        #self.address = address
 
     def __eq__(self, other):
         SameObject = isinstance(other, self.__class__)
@@ -61,9 +62,9 @@ class ClientRequest:
             (self.email == other.email) and \
             (self.request_result == other.request_result) and \
             (self.db_record == other.db_record) and \
-            (self.camera_name == other.camera_name) and \
-            (self.connection == other.connection) and \
-            (self.address == other.address):
+            (self.camera_name == other.camera_name):
+            #(self.connection == other.connection) and \
+            #(self.address == other.address):
             return True
         return False
 
@@ -78,7 +79,7 @@ class CameraSource:
         self.model_path = self.base_dir / 'camera_app/weights/test_weights.pt'        
         self.save_path = self.base_dir / ('video_archive/' + self.camera_name + '/')
         self.frame_queue = queue.Queue(maxsize=1)
-        self.buff_size = 100
+        self.buff_size = 1000
         self._thread_working = threading.Event()
         self._thread_working.set()
         self._thread_dead = threading.Event()
@@ -140,8 +141,8 @@ class CameraSource:
 
     @new_thread
     def camera_thread(self):
-        logging.info('CAMERA SOURCE %s', self.camera_source)
         log = logging.getLogger(self.camera_name)
+        log.info('CAMERA SOURCE %s', self.camera_source)        
         cap = cv2.VideoCapture(self.camera_source)
         self.get_model()
         frames_to_save = []
@@ -149,7 +150,7 @@ class CameraSource:
             log.debug('Get model')
             while cap.isOpened():
                 success, frame = cap.read()
-
+                """
                 if success:
                     results = self.model(frame, conf=0.0001)
                     if results[0]:
@@ -181,7 +182,18 @@ class CameraSource:
                         break
                 else:
                     break
+                    """
+                if success:
 
+                    if self.frame_queue.qsize() == 0:
+                        self.frame_queue.put(frame)
+                
+                    cv2.imshow("YOLOv8 Inference", frame)
+                    if cv2.waitKey(1) & 0xFF == ord("q"):
+                        break
+                else:
+                    break
+            log.debug('Thread ended')
             cap.release()
             cv2.destroyAllWindows()
     
@@ -207,8 +219,9 @@ class CameraSource:
                     message = self.convert_frame(frame)
                     try:
                         stream_sock.sendall(message)
-                    except:
-                        log.error('Connection to server broken')
+                        log.debug("SEND FRAME %s", len(message))
+                    except Exception as error:                        
+                        log.error('Connection to server broken:%s', error)
                         break
             stream_sock.close()
 
@@ -331,7 +344,7 @@ class CameraClient:
                         break
                     else:
                         log.debug('MESSAGE:%s', reply.decode())
-                        msg_list = reply.decode().split('|')
+                        msg_list = reply.decode().split('\n')
                         for msg in msg_list:
                             log.info('Signal list: %s', msg_list)
                             if msg != '':
@@ -427,7 +440,7 @@ class CameraClient:
             server.sendmail(self.email_user, email, message.as_string())
 
     @new_thread
-    def handler_video_request(self, request):
+    def handler_video(self, request):
         log = logging.getLogger('Handler video request')
         log.info('thread started')
         video_name = request.video_name.split('|')[0]
@@ -473,6 +486,7 @@ class CameraClient:
         for camera in self.camera_sources.keys():
             logging.info('%s',camera)
             records += json.dumps({'camera_name':str(camera)}) + "\n"
+            logging.debug('Starting camera thread %s', camera)
             self.camera_sources[camera].camera_thread()
 
         if sock:
@@ -490,12 +504,12 @@ class CameraClient:
         camera_list = self.config['CAMERA_LIST'].keys()
         logging.debug('%s', camera_list)
         for camera in camera_list:
-            self.camera_sources[camera] = CameraSource(self.config['CAMERA_LIST'][camera], camera, self.server_address, self.server_port)
+            self.camera_sources[camera] = CameraSource(int(self.config['CAMERA_LIST'][camera]), camera, self.server_address, self.server_port)
             logging.debug('Camera name:%s, Camera source:%s', camera, self.config['CAMERA_LIST'][camera])
 
     @check_thread
     def videostream_manager(self):
-        self.replicator()
+        #self.replicator()
         while self.videostream_manager_running():
             requester = self.stream_request_queue.get()
             current_stream_source = self.camera_sources[requester.camera_name]

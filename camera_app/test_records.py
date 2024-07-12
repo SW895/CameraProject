@@ -28,7 +28,7 @@ if sock_camera:
         pass
     sock_camera.close()
 
-current_time = datetime.now(tz=timezone)
+current_time = datetime.datetime.now(tz=timezone)
 
 video_record_1 = {'date_created':"22_01_2024T18:38:37.160934+03:00",
                   'car_det': True,
@@ -58,7 +58,7 @@ video_record_4 = {'date_created':"18_05_2023T21:38:37.160934+03:00",
 
 records = [video_record_1, video_record_2, video_record_3, video_record_4]
 for record in records:
-    new_record += json.dump(record) + '\n'
+    new_record += json.dumps(record) + '\n'
 
 sock_video_record = get_connection(ClientRequest(request_type='new_record',
                                             db_record='new_item'), 
