@@ -4,10 +4,10 @@ from camera_utils import ServerRequest, SingletonMeta, connect_to_db
 
 
 class VideoStreamManager(metaclass=SingletonMeta):
-    
+
     def __init__(self, signal_handler):
         self.signal = signal_handler
-    
+
     stream_sources = asyncio.Queue()
     stream_requesters = asyncio.Queue()
     stream_channels = {}
@@ -28,22 +28,21 @@ class VideoStreamManager(metaclass=SingletonMeta):
             except asyncio.CancelledError:
                 break
 
+            try:
+                current_channel = self.stream_channels[requester.camera_name]
+            except KeyError:
+                await self.update_stream_channels()
+                current_channel = self.stream_channels[requester.camera_name]
+
             self.log.debug('Get stream requester')
             try:
-                await self.stream_channels[requester.camera_name].consumers_queue.put(requester)
-            except KeyError:
-                self.log.debug('No such channel. Updating channels')
-                await self.update_stream_channels()
-                try:
-                    await self.stream_channels[requester.camera_name].consumers_queue.put(requester)
-                except:
-                    self.log.debug('Channel and camera does not exist')
+                await current_channel.consumers_queue.put(requester)
             except asyncio.CancelledError:
                 break
-            
+
             self.stream_requesters.task_done()
             self.log.debug('Starting channel')
-            self.loop.create_task(self.run_channel(self.stream_channels[requester.camera_name]))
+            self.loop.create_task(self.run_channel(current_channel))
 
     async def process_sources(self):
         while True:
@@ -52,25 +51,23 @@ class VideoStreamManager(metaclass=SingletonMeta):
                 source = await self.stream_sources.get()
             except asyncio.CancelledError:
                 break
+            try:
+                current_channel = self.stream_channels[source.camera_name]
+            except KeyError:
+                await self.update_stream_channels()
+                current_channel = self.stream_channels[source.camera_name]
             self.log.debug('Get stream source')
             try:
-                await self.stream_channels[source.camera_name].source_queue.put(source)
-            except KeyError:
-                self.log.debug('No such channel. Updating channels')
-                await self.update_stream_channels()
-                try:
-                    await self.stream_channels[source.camera_name].source_queue.put(source)
-                except:
-                    self.log.debug('Channel and camera does not exist')
+                await current_channel.source_queue.put(source)
             except asyncio.CancelledError:
                 break
-            
+
             self.stream_sources.task_done()
 
     async def update_stream_channels(self):
         self.stream_channels.clear()
         self.log.debug('connecting to db')
-        db_conn, cur = connect_to_db(False) #make async
+        db_conn, cur = connect_to_db(False)  #make async
         if db_conn:
             self.log.info('Successfully connected to db')
             cur.execute("SELECT camera_name FROM main_camera WHERE is_active=True")
@@ -88,8 +85,8 @@ class VideoStreamManager(metaclass=SingletonMeta):
                 await channel.task
             channel.consumer_number += 1
             self.log.debug('Sending stream request')
-            self.loop.create_task(self.send_stream_request(ServerRequest(request_type='stream', 
-                                                                        camera_name=channel.camera_name)))
+            self.loop.create_task(self.send_stream_request(ServerRequest(request_type='stream',
+                                                                         camera_name=channel.camera_name)))
             self.log.debug('START COURUTINE')
             channel.task = self.loop.create_task(channel.run_channel())
             return
@@ -117,15 +114,15 @@ class StreamChannel:
     async def run_channel(self):
         try:
             try:
-                self.source = await asyncio.wait_for(self.source_queue.get(), 
-                                                    self.source_timeout)
+                self.source = await asyncio.wait_for(self.source_queue.get(),
+                                                     self.source_timeout)
             except TimeoutError:
                 self.log.debug('SOURCE TIMEOUT')
                 raise asyncio.CancelledError
             self.log.debug('Get stream source')
             self.source_queue.task_done()
 
-            while self.consumer_number > 0 and self.source:            
+            while self.consumer_number > 0 and self.source:
                 while self.consumers_queue.qsize() > 0:
                     self.log.info('Get new consumer')
                     self.consumer_list.append(await self.consumers_queue.get())
@@ -144,7 +141,7 @@ class StreamChannel:
                             await consumer.writer.drain()
                             self.log.debug('DATA SENDED %s', len(data))
                         except Exception as error:
-                            self.log.debug('Connection to consumer %s lost: %s', 
+                            self.log.debug('Connection to consumer %s lost: %s',
                                            consumer.writer.get_extra_info('peername'), error)
                             self.consumer_list.remove(consumer)
                             self.log.debug('AAAAAAAAAA:%s', self.consumer_list)
@@ -173,7 +170,7 @@ class StreamChannel:
             self.log.debug('Consumers flushed %s', self.consumer_list)
         if self.consumer_list:
             for consumer in self.consumer_list:
-                self.log.debug('CLOSING CONNECTION TO CONSUMER %s', consumer.writer.get_extra_info('peername'))                
+                self.log.debug('CLOSING CONNECTION TO CONSUMER %s', consumer.writer.get_extra_info('peername'))
                 consumer.writer.close()
                 await consumer.writer.wait_closed()
                 self.consumer_list.remove(consumer)

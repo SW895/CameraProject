@@ -1,13 +1,13 @@
 import asyncio
 import logging
-from db import *
+import json
+from db import CameraRecord
 from camera_utils import SingletonMeta
 from managers import VideoStreamManager, VideoRequestManager
 
 
-
 class BaseHandler(object):
-    
+
     @classmethod
     async def handle(self, request):
         raise NotImplementedError
@@ -17,12 +17,12 @@ class SignalHandler(BaseHandler, metaclass=SingletonMeta):
 
     signal_queue = asyncio.Queue()
     log = logging.getLogger('Signal handler')
-    
+
     @classmethod
     async def handle(self, connection):
         if connection.request_type != 'signal':
-            return        
-        
+            return
+
         self.log.info('Handler started')
         while True:
             self.log.info('Waiting for new signal')
@@ -42,39 +42,8 @@ class SignalHandler(BaseHandler, metaclass=SingletonMeta):
         await connection.writer.wait_closed()
 
 
-class VideoStreamRequestHandler(BaseHandler):
-
-    log = logging.getLogger('Video Stream Request handler')
-    manager = VideoStreamManager(SignalHandler)
-
-    @classmethod
-    async def handle(self, request):
-        if request.request_type != 'stream_request':
-            return
-                
-        self.log.info('Handler started')
-        self.log.debug('Put request to stream request queue')
-        await self.manager.stream_requesters.put(request)
-        return True        
-
-
-class VideoStreamSourceHandler(BaseHandler):
-
-    log = logging.getLogger('Video Stream Source handler')
-    manager = VideoStreamManager(SignalHandler)
-
-    @classmethod
-    async def handle(self, request):
-        if request.request_type != 'stream_source':
-            return        
-        
-        self.log.info('Handler started')
-        self.log.debug('Put request to stream source queue')
-        await self.manager.stream_sources.put(request)
-        return True
-
-
 class NewRecordHandler(BaseHandler):
+    
     log = logging.getLogger('New records')
 
     @classmethod
@@ -89,13 +58,13 @@ class NewRecordHandler(BaseHandler):
             method = CameraRecord
 
         result = b""
-        data = b""        
+        data = b""
         self.log.info('Receiving new records')
-        while True:                
+        while True:
             data = await request.reader.read(100000)
             result += data
             if data == b"":
-                break                
+                break
 
         self.log.info('New records received')
         request.writer.close()
@@ -109,3 +78,48 @@ class NewRecordHandler(BaseHandler):
         loop = asyncio.get_running_loop()
         loop.create_task(method.save())
         return True
+
+
+class VideoStreamRequestHandler(BaseHandler):
+
+    log = logging.getLogger('Video Stream Request handler')
+    manager = VideoStreamManager(SignalHandler)
+
+    @classmethod
+    async def handle(self, request):
+        if request.request_type != 'stream_request':
+            return
+
+        self.log.info('Handler started')
+        self.log.debug('Put request to stream request queue')
+        await self.manager.stream_requesters.put(request)
+        return True
+
+
+class VideoStreamResponseHandler(BaseHandler):
+
+    log = logging.getLogger('Video Stream Source handler')
+    manager = VideoStreamManager(SignalHandler)
+
+    @classmethod
+    async def handle(self, request):
+        if request.request_type != 'stream_source':
+            return
+
+        self.log.info('Handler started')
+        self.log.debug('Put request to stream source queue')
+        await self.manager.stream_sources.put(request)
+        return True
+
+
+class VideoResponseHandler(BaseHandler):
+    pass
+
+class VideoRequestHandler(BaseHandler):
+    pass
+
+class AproveUserResponse(BaseHandler):
+    pass
+
+class AproveUserRequest(BaseHandler):
+    pass

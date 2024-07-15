@@ -70,7 +70,7 @@ class CameraRecord(BaseRecordHandling):
             
             try:
                 cur.execute("UPDATE main_camera SET is_active=False WHERE is_active=True;")
-            except:
+            except psycopg.Error:
                 self.log.error('No records')
             else:
                 self.log.debug('All cameras set to is_active=False')

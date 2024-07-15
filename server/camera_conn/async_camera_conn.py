@@ -5,7 +5,7 @@ from cam_server import Server
 from managers import VideoStreamManager
 from handlers import (
                         VideoStreamRequestHandler,
-                        VideoStreamSourceHandler,
+                        VideoStreamResponseHandler,
                         SignalHandler,
                         NewRecordHandler
                         )
@@ -26,7 +26,7 @@ internal_server = Server(internal_sock)
 external_server = Server(external_sock)
 
 internal_server.add_handler(VideoStreamRequestHandler)
-external_server.add_handler(VideoStreamSourceHandler,
+external_server.add_handler(VideoStreamResponseHandler,
                             SignalHandler,
                             NewRecordHandler)
 stream_manager = VideoStreamManager(SignalHandler)

@@ -480,7 +480,7 @@ class EchoServer:
                     db_conn.commit()
                     log.error('Failed to create new record %s: %s', record['camera_name'], error)
                     try:
-                        cur.execute("UPDATE main_camera SET is_active=True WHERE camera_name=%s;",(record['camera_name'],))
+                        cur.execute("UPDATE main_camera SET is_active=True WHERE camera_name=%s; ",(record['camera_name'],))
                         log.info('Camera %s successfully activated', record['camera_name'])
                     except (Exception, psycopg.Error) as error:
                         log.error('Corrupted camera record %s: %s', record['camera_name'], error)
@@ -649,7 +649,7 @@ class EchoServer:
                 stream_requester = self.internal_stream_requests.get()     
                 current_stream_channel = self.stream_channels[stream_requester.camera_name]
                 log.debug('Put requester to queue')
-                current_stream_channel.consumer_queue.put(stream_requester)                
+                current_stream_channel.consumer_queue.put(stream_requester)
 
                 if current_stream_channel.consumer_number() == 0:
                     log.debug('Killing thread %s', stream_requester.camera_name)
@@ -658,7 +658,8 @@ class EchoServer:
                     current_stream_channel.add_consumer()
                     current_stream_channel.run_thread()
                     log.debug('Send stream request')
-                    self.signal_queue.put(ServerRequest(request_type='stream', camera_name=stream_requester.camera_name))
+                    self.signal_queue.put(ServerRequest(request_type='stream', 
+                                                        camera_name=stream_requester.camera_name))
                 else:
                     current_stream_channel.add_consumer()
 
@@ -668,7 +669,7 @@ class EchoServer:
                 current_stream_channel = self.stream_channels[stream_source.camera_name]                                   
                 current_stream_channel.stream_source = stream_source
                 current_stream_channel.source_connected()
-            
+
             if self.DEBUG:
                 break
 
