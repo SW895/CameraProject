@@ -108,7 +108,7 @@ class StreamChannel:
     consumer_list = []
     source = None
     task = None
-    source_timeout = 2
+    source_timeout = 1
 
     def __init__(self, camera_name):
         self.camera_name = camera_name
@@ -150,7 +150,7 @@ class StreamChannel:
                             self.log.debug('AAAAAAAAAA:%s', self.consumer_list)
                             self.consumer_number -= 1
                             #consumer.writer.close()
-                            #await consumer.writer.wait_closed() ?????????????????1
+                            #await consumer.writer.wait_closed() ?????????????????
                 else:
                     self.log.debug('NO CONSUMERS')
                     raise asyncio.CancelledError

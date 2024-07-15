@@ -9,9 +9,11 @@ import pytz
 import threading
 from pathlib import Path
 from psycopg import sql
-from camera_utils import (check_thread, 
-                        new_thread, 
-                        connect_to_db)
+from camera_utils import (
+                            check_thread,
+                            new_thread,
+                            connect_to_db
+                        )
 
 
 logging.basicConfig(level=logging.DEBUG,
@@ -32,7 +34,7 @@ class ServerRequest:
                  camera_name=None,
                  connection=None,
                  address=None,):
-        
+
         self.request_type = request_type
         self.video_name = video_name
         self.video_size = video_size
@@ -43,21 +45,21 @@ class ServerRequest:
         self.camera_name = str(camera_name)
         self.connection = connection
         self.address = address
-    
+
     def __eq__(self, other):
         SameObject = isinstance(other, self.__class__)
         if SameObject:
             return True
         if (self.request_type == other.request_type) and \
-            (self.video_name == other.video_name) and \
-            (self.video_size == other.video_size) and \
-            (self.username == other.username) and \
-            (self.email == other.email) and \
-            (self.request_result == other.request_result) and \
-            (self.db_record == other.db_record) and \
-            (self.camera_name == other.camera_name) and \
-            (self.connection == other.connection) and \
-            (self.address == other.address):
+           (self.video_name == other.video_name) and \
+           (self.video_size == other.video_size) and \
+           (self.username == other.username) and \
+           (self.email == other.email) and \
+           (self.request_result == other.request_result) and \
+           (self.db_record == other.db_record) and \
+           (self.camera_name == other.camera_name) and \
+           (self.connection == other.connection) and \
+           (self.address == other.address):
             return True
         return False
 
@@ -68,9 +70,10 @@ class ServerRequest:
         del result['address']
         return result
 
+
 class StreamChannel:
 
-    def __init__(self ,camera_name):
+    def __init__(self, camera_name):
         self.consumer_queue = queue.Queue()
         self._mutex = threading.Lock()
         self._thread_working = threading.Event()
@@ -99,22 +102,22 @@ class StreamChannel:
         self._thread_working = threading.Event()
         self._thread_dead = threading.Event()
         self._source_connected = threading.Event()
-    
+
     def thread_dead(self):
         self._thread_dead.set()
 
     def thread_working(self):
         return self._thread_working.is_set()
-    
+
     def kill_thread(self):
         self._thread_working.clear()
         self._thread_dead.wait()
 
     def run_thread(self):
         self._thread_working.set()
-        self._thread_dead.clear()        
+        self._thread_dead.clear()
         self.stream_channel()
-    
+
     def wait_source_connection(self):
         return self._source_connected.wait(timeout=self.source_connection_timeout)
 
@@ -127,7 +130,7 @@ class StreamChannel:
     def add_consumer(self):
         with self._mutex:
             self._consumer_number += 1
-    
+
     def remove_consumer(self):
         with self._mutex:
             self._consumer_number -= 1
@@ -181,7 +184,8 @@ class StreamChannel:
 
 class EchoServer:
 
-    def __init__(self, internal_address, internal_port, external_address, external_port):
+    def __init__(self, internal_address, internal_port, 
+                 external_address, external_port):
         self.internal_stream_requests = queue.Queue()
         self.external_stream_responses = queue.Queue()
         self.stream_request_timeout = 5
@@ -248,10 +252,10 @@ class EchoServer:
 
     def video_manager_running(self):
         return not self._video_manager.is_set()
-    
+
     def run_videostream_manager(self):
         self._videostream_manager.clear()
-    
+
     def kill_videostream_manager(self):
         self._videostream_manager.set()
 
@@ -264,22 +268,22 @@ class EchoServer:
             string += '\n' + item
         string += '\nInternal request types:'
         for item in self.internal_handlers.keys():
-            string += '\n' + item   
+            string += '\n' + item
         return string
 
     def get_EHandlers(self):
-        external_handler_list = [method for method in EchoServer.__dict__ 
-                       if callable(getattr(EchoServer, method)) 
-                       and method.startswith('ehandler_')]       
-        handlers_ex = {}        
+        external_handler_list = [method for method in EchoServer.__dict__
+                                 if callable(getattr(EchoServer, method))
+                                 and method.startswith('ehandler_')]
+        handlers_ex = {}
         for item in external_handler_list:
             handlers_ex[item[9:]] = getattr(EchoServer, item)        
         return handlers_ex
 
     def get_IHandlers(self):
-        internal_handler_list = [method for method in EchoServer.__dict__ 
-                       if callable(getattr(EchoServer, method)) 
-                       and method.startswith('ihandler_')]
+        internal_handler_list = [method for method in EchoServer.__dict__
+                                 if callable(getattr(EchoServer, method))
+                                 and method.startswith('ihandler_')]
         handlers_in = {}
         for item in internal_handler_list:
             handlers_in[item[9:]] = getattr(EchoServer, item)
@@ -296,7 +300,7 @@ class EchoServer:
 
         self.internal_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.internal_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self.internal_sock.bind((self.internal_address,self.internal_port))
+        self.internal_sock.bind((self.internal_address, self.internal_port))
         self.internal_sock.listen(10)
         log.info("Listening on %s:%s", self.internal_address, self.internal_port)
 
@@ -312,7 +316,7 @@ class EchoServer:
             external_conn, addr = external_sock.accept()
             log.info('Request received from: %s', addr)
             msg = external_conn.recv(self.buff_size)
-            request = json.loads(msg.decode(), object_hook=lambda d:ServerRequest(**d))
+            request = json.loads(msg.decode(), object_hook=lambda d: ServerRequest(**d))
             request.connection = external_conn
             request.address = addr
 
@@ -329,21 +333,21 @@ class EchoServer:
                     self.external_handlers[request.request_type](self, request)
 
             else:
-                log.warning('Wrong request type. Closing connection')                
+                log.warning('Wrong request type. Closing connection')
                 external_conn.close()
-            
+
             if self.DEBUG:
                 return
 
     @check_thread
     def run_internal_server(self, internal_sock):
         log = logging.getLogger('Internal Server')
-    
+
         while True:
             internal_conn, addr = internal_sock.accept()
             msg = internal_conn.recv(self.buff_size)
             log.info('Internal request received')
-            request = json.loads(msg.decode(), object_hook=lambda d:ServerRequest(**d))
+            request = json.loads(msg.decode(), object_hook=lambda d: ServerRequest(**d))
             request.connection = internal_conn
             request.address = addr
 
@@ -353,31 +357,31 @@ class EchoServer:
             else:
                 log.warning('Wrong request type. Closing connection')
                 internal_conn.close()
-            
+
             if self.DEBUG:
                 return
-    
+
     @check_thread
     def ehandler_signal(self, request):
         log = logging.getLogger('Signal thread')
         log.info('Signal thread started')
 
-        #self.check_connection(log, signal_conn.connection, 'restart')
-        log.debug('%s,%s',request.connection, request.address)
+#       self.check_connection(log, signal_conn.connection, 'restart')
+        log.debug('%s,%s', request.connection, request.address)
         while True:
             log.info('Waiting for new signal')
             signal = self.signal_queue.get()
             log.info('Get signal:%s', signal.request_type)   
-            #if signal.request_type == 'restart':
-                #log.warning('Shutting down thread due to received signal')
-                #break
+#           if signal.request_type == 'restart':
+#               log.warning('Shutting down thread due to received signal')
+#               break
             try:
                 log.info('Sending signal')
                 message = json.dumps(signal.to_dict()) + '!'
                 log.debug('%s,%s',request.connection, request.address)
-                request.connection.send(message.encode())              
+                request.connection.send(message.encode())
             except Exception as e:
-                log.debug('%s,%s',request.connection, request.address)
+                log.debug('%s,%s', request.connection, request.address)
                 log.warning('Connection lost. Shutting down thread %s', e)
                 break
             if self.DEBUG:
@@ -393,13 +397,13 @@ class EchoServer:
             self.save_or_update_camera()
 
         result = b""
-        data = b""        
+        data = b""
         log.info('Receiving new records')
-        while True:                
+        while True:
             data = request.connection.recv(self.buff_size)
             result += data
             if data == b"" or self.DEBUG:
-                break                
+                break
 
         log.info('New records received')
         request.connection.close()
@@ -407,7 +411,7 @@ class EchoServer:
         for record in records:
             if record != "" and request.db_record:
                 log.debug('RECORD:%s', record)
-                self.save_db_records_queue.put_nowait(json.loads(record))                
+                self.save_db_records_queue.put_nowait(json.loads(record))
             elif record != "" and request.camera_name:
                 log.debug('RECORD:%s', record)
                 self.camera_records_queue.put(json.loads(record))

@@ -3,6 +3,7 @@ import logging
 import json
 from camera_utils import ServerRequest
 
+
 class Server:
 
     handlers = []
@@ -22,12 +23,12 @@ class Server:
         )
         async with self.server:
             await self.server.serve_forever()
-    
+
     async def router(self, reader, writer):
         data = await reader.read(self.buff_size)
         message = data.decode()
         self.log.debug('Message received:%s', message)
-        request = json.loads(message, object_hook=lambda d:ServerRequest(**d))
+        request = json.loads(message, object_hook=lambda d: ServerRequest(**d))
         request.writer = writer
         request.reader = reader
 
@@ -47,11 +48,10 @@ class Server:
                 if result:
                     break
             else:
-                self.log.warning('Wrong request type. Closing connection')                
+                self.log.warning('Wrong request type. Closing connection')
                 request.writer.close()
                 await request.writer.wait_closed()
 
     def add_handler(self, *args):
         for handler in args:
             self.handlers.append(handler)
-
