@@ -4,28 +4,38 @@ from camera_utils import ServerRequest, SingletonMeta
 from db import ActiveCameras
 
 
-class VideoStreamManager(metaclass=SingletonMeta):
+class BaseManager:
 
-    def __init__(self, signal_handler):
-        self.signal = signal_handler
-
-    stream_sources = asyncio.Queue()
-    stream_requesters = asyncio.Queue()
-    stream_channels = {}
-    log = logging.getLogger('VideoStream Manager')
+    responses = asyncio.Queue()
+    requesters = asyncio.Queue()
     loop = asyncio.get_event_loop()
 
     async def run_manager(self):
         self.log.info('Starting manager')
         loop = asyncio.get_running_loop()
         loop.create_task(self.process_requesters())
-        loop.create_task(self.process_sources())
+        loop.create_task(self.process_responses())
+
+    async def process_requesters(self):
+        raise NotImplementedError
+
+    async def process_responses(self):
+        raise NotImplementedError
+
+
+class VideoStreamManager(BaseManager, metaclass=SingletonMeta):
+
+    def __init__(self, signal_handler):
+        self.signal = signal_handler
+
+    stream_channels = {}
+    log = logging.getLogger('VideoStream Manager')
 
     async def process_requesters(self):
         while True:
             self.log.debug('Waiting for stream requester')
             try:
-                requester = await self.stream_requesters.get()
+                requester = await self.requesters.get()
             except asyncio.CancelledError:
                 break
 
@@ -41,15 +51,15 @@ class VideoStreamManager(metaclass=SingletonMeta):
             except asyncio.CancelledError:
                 break
 
-            self.stream_requesters.task_done()
+            self.requesters.task_done()
             self.log.debug('Starting channel')
             self.loop.create_task(self.run_channel(current_channel))
 
-    async def process_sources(self):
+    async def process_responses(self):
         while True:
             self.log.debug('Waiting for a stream source')
             try:
-                source = await self.stream_sources.get()
+                source = await self.responses.get()
             except asyncio.CancelledError:
                 break
             try:
@@ -63,13 +73,14 @@ class VideoStreamManager(metaclass=SingletonMeta):
             except asyncio.CancelledError:
                 break
 
-            self.stream_sources.task_done()
+            self.responses.task_done()
 
     async def update_stream_channels(self):
         self.stream_channels.clear()
-        active_cameras = ActiveCameras.get_active_camera_list()
+        active_cameras = await ActiveCameras.get_active_camera_list()
         for camera in active_cameras:
             self.stream_channels[camera[0]] = StreamChannel(camera[0])
+        self.log.debug('Channels updated')
 
     async def run_channel(self, channel):
         if channel.consumer_number == 0:
@@ -79,8 +90,9 @@ class VideoStreamManager(metaclass=SingletonMeta):
                 await channel.task
             channel.consumer_number += 1
             self.log.debug('Sending stream request')
-            self.loop.create_task(self.send_stream_request(ServerRequest(request_type='stream',
-                                                                         camera_name=channel.camera_name)))
+            request = ServerRequest(request_type='stream',
+                                    camera_name=channel.camera_name)
+            await self.send_stream_request(request)
             self.log.debug('START COURUTINE')
             channel.task = self.loop.create_task(channel.run_channel())
             return
@@ -107,15 +119,16 @@ class StreamChannel:
 
     async def run_channel(self):
         try:
-            try:
-                self.source = await asyncio.wait_for(self.source_queue.get(),
-                                                     self.source_timeout)
-            except TimeoutError:
-                self.log.debug('SOURCE TIMEOUT')
-                raise asyncio.CancelledError
-            self.log.debug('Get stream source')
-            self.source_queue.task_done()
+            self.source = await asyncio.wait_for(self.source_queue.get(),
+                                                 self.source_timeout)
+        except TimeoutError:
+            self.log.debug('SOURCE TIMEOUT')
+            await self.clean_up()
+            return
 
+        self.log.debug('Get stream source')
+        self.source_queue.task_done()
+        try:
             while self.consumer_number > 0 and self.source:
                 while self.consumers_queue.qsize() > 0:
                     self.log.info('Get new consumer')
@@ -123,32 +136,31 @@ class StreamChannel:
                     self.consumers_queue.task_done()
                     self.log.debug('Consumer added to list')
 
-                if self.consumer_list:
-                    data = await self.source.reader.read(65536)
-                    self.log.debug('DATA RECEIVED %s', len(data))
-                    if not data:
-                        self.log.debug('Connection to camera lost')
-                        raise asyncio.CancelledError
-                    for consumer in self.consumer_list:
-                        try:
-                            consumer.writer.write(data)
-                            await consumer.writer.drain()
-                            self.log.debug('DATA SENDED %s', len(data))
-                        except Exception as error:
-                            self.log.debug('Connection to consumer %s lost: %s',
-                                           consumer.writer.get_extra_info('peername'), error)
-                            self.consumer_list.remove(consumer)
-                            self.log.debug('AAAAAAAAAA:%s', self.consumer_list)
-                            self.consumer_number -= 1
-                            #consumer.writer.close()
-                            #await consumer.writer.wait_closed() ?????????????????
-                else:
-                    self.log.debug('NO CONSUMERS')
+                data = await self.source.reader.read(65536)
+                self.log.debug('DATA RECEIVED %s', len(data))
+                if not data:
+                    self.log.debug('Connection to camera lost')
                     raise asyncio.CancelledError
+                await self.send_to_all(data)
+
         except asyncio.CancelledError:
             self.log.debug('Courutine cancelled')
         finally:
             await self.clean_up()
+
+    async def send_to_all(self, data):
+        for consumer in self.consumer_list:
+            try:
+                consumer.writer.write(data)
+                await consumer.writer.drain()
+                self.log.debug('DATA SENDED %s', len(data))
+            except Exception as error:
+                self.log.debug('Connection to consumer lost: %s',
+                               error)
+                self.consumer_list.remove(consumer)
+                self.consumer_number -= 1
+#               consumer.writer.close()
+#               await consumer.writer.wait_closed() ?????????????
 
     async def clean_up(self):
         if self.source:
@@ -157,23 +169,74 @@ class StreamChannel:
             await self.source.writer.wait_closed()
             self.log.debug('SOURCE CONNECTION CLOSED')
         self.log.debug('PROCESS CONSUMERS')
+
         while self.consumers_queue.qsize() > 0:
             self.log.debug('Getting consumers')
             self.consumer_list.append(await self.consumers_queue.get())
             self.consumers_queue.task_done()
             self.log.debug('Consumers flushed %s', self.consumer_list)
+
         if self.consumer_list:
             for consumer in self.consumer_list:
-                self.log.debug('CLOSING CONNECTION TO CONSUMER %s', consumer.writer.get_extra_info('peername'))
+                self.log.debug('CLOSING CONNECTION TO CONSUMER %s',
+                               consumer.writer.get_extra_info('peername'))
                 consumer.writer.close()
                 await consumer.writer.wait_closed()
                 self.consumer_list.remove(consumer)
-                self.log.debug('CLOSE CONNECTION TO CONSUMER %s', self.consumer_number)
+                self.log.debug('CLOSE CONNECTION TO CONSUMER %s',
+                               self.consumer_number)
         self.consumer_number = 0
         self.source = None
         self.task = None
         self.log.debug('COURUTINE ENDED')
 
 
-class VideoRequestManager:
-    pass
+class VideoRequestManager(BaseManager, metaclass=SingletonMeta):
+
+    async def process_requesters(self):
+        log = logging.getLogger('Video Manager')
+        log.info('Thread started')
+#       video_requesters = {}
+        self.run_video_manager()
+        """
+        while self.video_manager_running():
+            while self.video_requesters_queue.qsize() > 0:
+                requester = self.video_requesters_queue.get()
+                log.info('get video requester %s', requester.video_name)
+                if requester.video_name in video_requesters:
+                    video_requesters[requester.video_name].append(requester)
+                else:
+                    video_request_time =
+                    datetime.datetime.now(tz=self.timezone)
+                    log.info('VIDEO NAME:%s', requester.video_name)
+                    video_requesters[requester.video_name] =
+                    [video_request_time, requester]
+                    log.info('put video request to queue')
+                    self.signal_queue.put(ServerRequest(request_type='video',
+                                                        video_name=requester.video_name))
+
+            while self.video_response_queue.qsize() > 0:
+                video_response = self.video_response_queue.get()
+                log.info('Get video response from queue')
+
+                log.info('KEYS: %s', video_requesters.keys())
+                for requester in
+                video_requesters[video_response.video_name][1:]:
+                    requester.connection.send(video_response.request_result.encode())
+                    requester.connection.close()
+                    log.info('RESPONSE NAME: %s', video_response.video_name)
+                del video_requesters[video_response.video_name]
+
+            if not video_requesters:
+                log.info('No more video requesters')
+                break
+
+            for item in video_requesters.keys():
+                if  (datetime.datetime.now(tz=self.timezone) -
+                video_requesters[item][0]).seconds >
+                self.video_request_timeout:
+                    log.info('Video requester: %s, timeout', item)
+                    self.video_response_queue.put(ServerRequest(request_type='video',
+                                                                request_result='failure',
+                                                                video_name=item))
+        """
