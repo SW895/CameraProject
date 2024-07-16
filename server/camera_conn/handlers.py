@@ -43,7 +43,7 @@ class SignalHandler(BaseHandler, metaclass=SingletonMeta):
 
 
 class NewRecordHandler(BaseHandler):
-    
+
     log = logging.getLogger('New records')
 
     @classmethod
@@ -113,13 +113,37 @@ class VideoStreamResponseHandler(BaseHandler):
 
 
 class VideoResponseHandler(BaseHandler):
-    pass
+
+    log = logging.getLogger('Signal handler')
+
+    @classmethod
+    async def handle(self, request):
+        pass
+
 
 class VideoRequestHandler(BaseHandler):
-    pass
+
+    log = logging.getLogger('Signal handler')
+
+    @classmethod
+    async def handle(self, request):
+        pass
+
 
 class AproveUserResponse(BaseHandler):
-    pass
+
+    log = logging.getLogger('Signal handler')
+
+    @classmethod
+    async def handle(self, request):
+        pass
+
 
 class AproveUserRequest(BaseHandler):
-    pass
+
+    log = logging.getLogger('Signal handler')
+
+    @classmethod
+    async def handle(self, request):
+        pass
+

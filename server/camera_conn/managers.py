@@ -1,6 +1,7 @@
 import asyncio
 import logging
-from camera_utils import ServerRequest, SingletonMeta, connect_to_db
+from camera_utils import ServerRequest, SingletonMeta
+from db import ActiveCameras
 
 
 class VideoStreamManager(metaclass=SingletonMeta):
@@ -66,16 +67,9 @@ class VideoStreamManager(metaclass=SingletonMeta):
 
     async def update_stream_channels(self):
         self.stream_channels.clear()
-        self.log.debug('connecting to db')
-        db_conn, cur = connect_to_db(False)  #make async
-        if db_conn:
-            self.log.info('Successfully connected to db')
-            cur.execute("SELECT camera_name FROM main_camera WHERE is_active=True")
-            active_cameras = cur.fetchall()
-            for camera in active_cameras:
-                self.stream_channels[camera[0]] = StreamChannel(camera[0])
-            cur.close()
-            db_conn.close()
+        active_cameras = ActiveCameras.get_active_camera_list()
+        for camera in active_cameras:
+            self.stream_channels[camera[0]] = StreamChannel(camera[0])
 
     async def run_channel(self, channel):
         if channel.consumer_number == 0:

@@ -16,6 +16,10 @@ class Server:
         name = f'Server:{self.port}'
         self.log = logging.getLogger(name)
 
+    def add_handler(self, *args):
+        for handler in args:
+            self.handlers.append(handler)
+
     async def run_server(self):
         self.log.debug('Starting server')
         self.server = await asyncio.start_server(
@@ -51,7 +55,3 @@ class Server:
                 self.log.warning('Wrong request type. Closing connection')
                 request.writer.close()
                 await request.writer.wait_closed()
-
-    def add_handler(self, *args):
-        for handler in args:
-            self.handlers.append(handler)
