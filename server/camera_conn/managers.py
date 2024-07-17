@@ -10,6 +10,9 @@ class BaseManager:
     requesters = asyncio.Queue()
     loop = asyncio.get_event_loop()
 
+    def __init__(self, signal_handler):
+        self.signal = signal_handler
+
     async def run_manager(self):
         self.log.info('Starting manager')
         loop = asyncio.get_running_loop()
@@ -22,11 +25,11 @@ class BaseManager:
     async def process_responses(self):
         raise NotImplementedError
 
+    async def send_request(self, request):
+        await self.signal.signal_queue.put(request)
+
 
 class VideoStreamManager(BaseManager, metaclass=SingletonMeta):
-
-    def __init__(self, signal_handler):
-        self.signal = signal_handler
 
     stream_channels = {}
     log = logging.getLogger('VideoStream Manager')
@@ -46,11 +49,7 @@ class VideoStreamManager(BaseManager, metaclass=SingletonMeta):
                 current_channel = self.stream_channels[requester.camera_name]
 
             self.log.debug('Get stream requester')
-            try:
-                await current_channel.consumers_queue.put(requester)
-            except asyncio.CancelledError:
-                break
-
+            await current_channel.add_consumer(requester)
             self.requesters.task_done()
             self.log.debug('Starting channel')
             self.loop.create_task(self.run_channel(current_channel))
@@ -68,11 +67,7 @@ class VideoStreamManager(BaseManager, metaclass=SingletonMeta):
                 await self.update_stream_channels()
                 current_channel = self.stream_channels[source.camera_name]
             self.log.debug('Get stream source')
-            try:
-                await current_channel.source_queue.put(source)
-            except asyncio.CancelledError:
-                break
-
+            await current_channel.source_queue.put(source)
             self.responses.task_done()
 
     async def update_stream_channels(self):
@@ -92,20 +87,16 @@ class VideoStreamManager(BaseManager, metaclass=SingletonMeta):
             self.log.debug('Sending stream request')
             request = ServerRequest(request_type='stream',
                                     camera_name=channel.camera_name)
-            await self.send_stream_request(request)
+            await self.send_request(request)
             self.log.debug('START COURUTINE')
             channel.task = self.loop.create_task(channel.run_channel())
             return
         self.log.debug('COURUTINE ALREADY RUNNING')
         channel.consumer_number += 1
 
-    async def send_stream_request(self, request):
-        await self.signal.signal_queue.put(request)
-
 
 class StreamChannel:
 
-    consumers_queue = asyncio.Queue()
     source_queue = asyncio.Queue()
     consumer_number = 0
     consumer_list = []
@@ -116,6 +107,10 @@ class StreamChannel:
     def __init__(self, camera_name):
         self.camera_name = camera_name
         self.log = logging.getLogger(self.camera_name)
+
+    async def add_consumer(self, consumer):
+        self.log.debug('Get New Consumer')
+        self.consumer_list.append(consumer)
 
     async def run_channel(self):
         try:
@@ -130,12 +125,6 @@ class StreamChannel:
         self.source_queue.task_done()
         try:
             while self.consumer_number > 0 and self.source:
-                while self.consumers_queue.qsize() > 0:
-                    self.log.info('Get new consumer')
-                    self.consumer_list.append(await self.consumers_queue.get())
-                    self.consumers_queue.task_done()
-                    self.log.debug('Consumer added to list')
-
                 data = await self.source.reader.read(65536)
                 self.log.debug('DATA RECEIVED %s', len(data))
                 if not data:
@@ -170,12 +159,6 @@ class StreamChannel:
             self.log.debug('SOURCE CONNECTION CLOSED')
         self.log.debug('PROCESS CONSUMERS')
 
-        while self.consumers_queue.qsize() > 0:
-            self.log.debug('Getting consumers')
-            self.consumer_list.append(await self.consumers_queue.get())
-            self.consumers_queue.task_done()
-            self.log.debug('Consumers flushed %s', self.consumer_list)
-
         if self.consumer_list:
             for consumer in self.consumer_list:
                 self.log.debug('CLOSING CONNECTION TO CONSUMER %s',
@@ -193,50 +176,96 @@ class StreamChannel:
 
 class VideoRequestManager(BaseManager, metaclass=SingletonMeta):
 
+    log = logging.getLogger('Video Request Manager')
+    requested_videos = {}
+    loop = asyncio.get_event_loop()
+
+    async def run_manager(self):
+        self.loop.create_task(self.garb_collector())
+        await super().run_manager()
+
     async def process_requesters(self):
-        log = logging.getLogger('Video Manager')
-        log.info('Thread started')
-#       video_requesters = {}
-        self.run_video_manager()
-        """
-        while self.video_manager_running():
-            while self.video_requesters_queue.qsize() > 0:
-                requester = self.video_requesters_queue.get()
-                log.info('get video requester %s', requester.video_name)
-                if requester.video_name in video_requesters:
-                    video_requesters[requester.video_name].append(requester)
-                else:
-                    video_request_time =
-                    datetime.datetime.now(tz=self.timezone)
-                    log.info('VIDEO NAME:%s', requester.video_name)
-                    video_requesters[requester.video_name] =
-                    [video_request_time, requester]
-                    log.info('put video request to queue')
-                    self.signal_queue.put(ServerRequest(request_type='video',
-                                                        video_name=requester.video_name))
-
-            while self.video_response_queue.qsize() > 0:
-                video_response = self.video_response_queue.get()
-                log.info('Get video response from queue')
-
-                log.info('KEYS: %s', video_requesters.keys())
-                for requester in
-                video_requesters[video_response.video_name][1:]:
-                    requester.connection.send(video_response.request_result.encode())
-                    requester.connection.close()
-                    log.info('RESPONSE NAME: %s', video_response.video_name)
-                del video_requesters[video_response.video_name]
-
-            if not video_requesters:
-                log.info('No more video requesters')
+        while True:
+            self.log.debug('Waiting for video request')
+            try:
+                requester = await self.requesters.get()
+            except asyncio.CancelledError:
                 break
 
-            for item in video_requesters.keys():
-                if  (datetime.datetime.now(tz=self.timezone) -
-                video_requesters[item][0]).seconds >
-                self.video_request_timeout:
-                    log.info('Video requester: %s, timeout', item)
-                    self.video_response_queue.put(ServerRequest(request_type='video',
-                                                                request_result='failure',
-                                                                video_name=item))
-        """
+            self.requesters.task_done()
+            self.log.info('get video requester %s', requester.video_name)
+            try:
+                current_request = self.requested_videos[requester.video_name]
+            except KeyError:
+                request = VideoRequest(self.signal, requester.video_name)
+                self.requested_videos[requester.video_name] = request
+                current_request = self.requested_videos[requester.video_name]
+                self.loop.create_task(current_request.process_request())
+                self.log.debug('Created video request')
+            else:
+                self.log.debug('Video request alredy created')
+            finally:
+                current_request.add_requester(requester)
+
+    async def process_responses(self):
+        while True:
+            self.log.debug('Waiting for video response')
+            try:
+                response = await self.responses.get()
+            except asyncio.CancelledError:
+                break
+
+            try:
+                current_response = self.requested_videos[response.video_name]
+            except KeyError:
+                self.log.debug('No such request %s', response.video_name)
+            else:
+                self.log.info('KEYS: %s', self.requested_videos.keys())
+                await current_response.response_queue.put(response)
+
+            self.responses.task_done()
+
+    async def garb_collector(self):
+        await asyncio.sleep(10)
+        for request in self.requested_videos.keys():
+            if self.requested_videos[request].task_done:
+                del self.requested_videos[request]
+
+
+class VideoRequest:
+
+    task_done = False
+    response_queue = asyncio.Queue()
+    response = None
+    requesters = []
+    response_timeout = 5
+
+    def __init__(self, signal_handler, video_name):
+        self.signal = signal_handler
+        self.video_name = video_name
+        self.log = logging.getLogger(self.video_name)
+
+    async def send_request(self, request):
+        await self.signal.signal_queue.put(request)
+
+    async def add_requester(self, requester):
+        self.requesters.append(requester)
+
+    async def process_request(self):
+        request = ServerRequest(request_type='video',
+                                video_name=self.video_name)
+        await self.send_request(request)
+        try:
+            self.response = await asyncio.wait_for(self.response_queue.get(),
+                                                   self.response_timeout)
+        except TimeoutError:
+            self.log.debug('Response TIMEOUT')
+            self.response = 'failure'
+
+        for requester in self.requesters:
+            requester.writer.write(self.response.request_result.encode())
+            requester.writer.close()
+            await requester.writer.wait_closed()
+            self.log.info('RESPONSE NAME: %s', self.response.video_name)
+
+        self.task_done = True

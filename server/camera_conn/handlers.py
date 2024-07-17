@@ -96,7 +96,7 @@ class VideoStreamRequestHandler(BaseHandler):
 
         self.log.info('Handler started')
         self.log.debug('Put request to stream request queue')
-        await self.manager.stream_requesters.put(request)
+        await self.manager.requesters.put(request)
         return True
 
 
@@ -112,7 +112,7 @@ class VideoStreamResponseHandler(BaseHandler):
 
         self.log.info('Handler started')
         self.log.debug('Put request to stream source queue')
-        await self.manager.stream_sources.put(request)
+        await self.manager.responses.put(request)
         return True
 
 
@@ -177,7 +177,7 @@ class VideoResponseHandler(BaseHandler):
         response = ServerRequest(request_type='video_reponse',
                                  request_result='success',
                                  video_name=request.video_name)
-        await self.manager.video_response_queue.put()
+        await self.manager.responses.put(response)
         self.log.info('File received')
         return True
 
@@ -193,7 +193,7 @@ class VideoRequestHandler(BaseHandler):
             return
 
         self.log.debug('Put video request to queue')
-        await self.manager.video_requesters_queue.put(request)
+        await self.manager.requesters.put(request)
         return True
 
 
