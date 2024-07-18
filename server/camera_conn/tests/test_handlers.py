@@ -10,7 +10,10 @@ def wrong_request():
     return ServerRequest(request_type='wrong_request')
 
 
-# ---------- Test Signal Handler ----------
+# -----------------------------------------------
+# ------------ Test Signal Handler --------------
+# -----------------------------------------------
+
 @pytest.fixture
 def signal_request(mocker):
     request = ServerRequest(request_type='signal')
@@ -24,7 +27,7 @@ def test_signal():
 
 
 @pytest.mark.asyncio
-async def test_wrong_request(wrong_request):
+async def test_wrong_request_for_signal_handler(wrong_request):
     result = await SignalHandler.handle(wrong_request)
     assert result is None
 
@@ -48,3 +51,38 @@ async def test_process_signal(signal_request, test_signal):
     excpected_result = (test_signal.serialize() + '\n').encode()
     signal_request.writer.write.assert_called_once_with(excpected_result)
     signal_request.writer.drain.assert_awaited_once()
+
+
+# -----------------------------------------------
+# ------------ New Record Handler ---------------
+# -----------------------------------------------
+
+
+@pytest.fixture
+def new_record_request():
+    return ServerRequest(request_type='new_record')
+
+
+@pytest.fixture
+def new_video_record_request():
+    return ServerRequest(request_type='new_record', db_record='test_record')
+
+
+@pytest.fixture
+def new_camera_record():
+    return ServerRequest(request_type='new_record', camera_name='test_camera')
+
+
+@pytest.mark.asyncio
+async def test_wrong_request_for_new_record_handler(wrong_request):
+    pass
+
+
+@pytest.mark.asyncio
+async def test_process_new_video_record(new_video_record_request):
+    pass
+
+
+@pytest.mark.asyncio
+async def test_process_new_camera_record(new_camera_record):
+    pass
