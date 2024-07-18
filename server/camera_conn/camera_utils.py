@@ -24,8 +24,8 @@ class ServerRequest:
                  request_result=None,
                  db_record=None,
                  camera_name=None,
-                 reader=None,
-                 writer=None,):
+                 writer=None,
+                 reader=None):
 
         self.request_type = request_type
         self.video_name = video_name
@@ -34,9 +34,9 @@ class ServerRequest:
         self.email = email
         self.request_result = request_result
         self.db_record = db_record
-        self.camera_name = str(camera_name)
-        self.reader = reader
+        self.camera_name = camera_name
         self.writer = writer
+        self.reader = reader
 
     def __eq__(self, other):
         SameObject = isinstance(other, self.__class__)
@@ -56,9 +56,10 @@ class ServerRequest:
         return False
 
     def serialize(self):
-        result = self.__dict__
+        result = self.__dict__.copy()
         del result['writer']
         del result['reader']
+
         return json.dumps(result)
 
 

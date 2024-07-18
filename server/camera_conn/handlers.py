@@ -2,9 +2,9 @@ import asyncio
 import logging
 import json
 import os
-from db import CameraRecord, UserRecord
-from camera_utils import SingletonMeta, ServerRequest
-from managers import VideoStreamManager, VideoRequestManager
+from .db import CameraRecord, UserRecord
+from .camera_utils import SingletonMeta, ServerRequest
+from .managers import VideoStreamManager, VideoRequestManager
 
 
 class BaseHandler(object):
@@ -20,30 +20,39 @@ class SignalHandler(BaseHandler, metaclass=SingletonMeta):
 
     signal_queue = asyncio.Queue()
     log = logging.getLogger('Signal handler')
+    connection = None
 
     @classmethod
     async def handle(self, connection):
         if connection.request_type != 'signal':
             return
-
+        self.connection = connection
         self.log.info('Handler started')
+        self.log.info('%s', self.connection.writer)
         while True:
-            self.log.info('Waiting for new signal')
-            signal = await self.signal_queue.get()
-            self.signal_queue.task_done()
-            self.log.info('Get signal:%s', signal.request_type)
             try:
-                self.log.info('Sending signal')
-                message = signal.serialize() + '\n'
-                connection.writer.write(message.encode())
-                await connection.writer.drain()
+                await self.process_signals()
             except Exception as error:
                 self.log.warning('Connection lost. Error:%s', error)
                 break
+            if self.DEBUG:
+                self.log.info('DEBUG')
+                break
 
-        connection.writer.close()
-        await connection.writer.wait_closed()
+        self.connection.writer.close()
+        await self.connection.writer.wait_closed()
         return True
+
+    @classmethod
+    async def process_signals(self):
+        self.log.info('Waiting for new signal')
+        signal = await self.signal_queue.get()
+        self.signal_queue.task_done()
+        self.log.info('Get signal:%s', signal.request_type)
+        self.log.info('Sending signal')
+        message = signal.serialize() + '\n'
+        self.connection.writer.write(message.encode())
+        await self.connection.writer.drain()
 
 
 class NewRecordHandler(BaseHandler):
@@ -199,7 +208,7 @@ class VideoRequestHandler(BaseHandler):
 
 class AproveUserResponseHandler(BaseHandler):
 
-    log = logging.getLogger('Signal handler')
+    log = logging.getLogger('Aprove User Response')
 
     @classmethod
     async def handle(self, request):
@@ -215,7 +224,7 @@ class AproveUserResponseHandler(BaseHandler):
 
 class AproveUserRequestHandler(BaseHandler):
 
-    log = logging.getLogger('Signal handler')
+    log = logging.getLogger('Aprove User Request Handler')
 
     @classmethod
     async def handle(self, request):

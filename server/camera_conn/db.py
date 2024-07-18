@@ -4,7 +4,7 @@ import logging
 import json
 import os
 from psycopg import sql
-from camera_utils import ServerRequest
+from .camera_utils import ServerRequest
 
 
 class BaseRecordHandling:

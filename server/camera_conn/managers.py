@@ -1,23 +1,22 @@
 import asyncio
 import logging
-from camera_utils import ServerRequest, SingletonMeta
-from db import ActiveCameras
+from .camera_utils import ServerRequest, SingletonMeta
+from .db import ActiveCameras
 
 
 class BaseManager:
 
     responses = asyncio.Queue()
     requesters = asyncio.Queue()
-    loop = asyncio.get_event_loop()
 
     def __init__(self, signal_handler):
         self.signal = signal_handler
 
     async def run_manager(self):
         self.log.info('Starting manager')
-        loop = asyncio.get_running_loop()
-        loop.create_task(self.process_requesters())
-        loop.create_task(self.process_responses())
+        self.loop = asyncio.get_running_loop()
+        self.loop.create_task(self.process_requesters())
+        self.loop.create_task(self.process_responses())
 
     async def process_requesters(self):
         raise NotImplementedError
@@ -178,11 +177,10 @@ class VideoRequestManager(BaseManager, metaclass=SingletonMeta):
 
     log = logging.getLogger('Video Request Manager')
     requested_videos = {}
-    loop = asyncio.get_event_loop()
 
     async def run_manager(self):
-        self.loop.create_task(self.garb_collector())
         await super().run_manager()
+        self.loop.create_task(self.garb_collector())
 
     async def process_requesters(self):
         while True:
