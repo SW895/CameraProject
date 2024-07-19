@@ -2,7 +2,7 @@ import asyncio
 import logging
 import json
 import os
-from .db import CameraRecord, UserRecord
+from .db import NewVideoRecord, CameraRecord, UserRecord
 from .camera_utils import SingletonMeta, ServerRequest
 from .managers import VideoStreamManager, VideoRequestManager
 
@@ -35,9 +35,6 @@ class SignalHandler(BaseHandler, metaclass=SingletonMeta):
             except Exception as error:
                 self.log.warning('Connection lost. Error:%s', error)
                 break
-            if self.DEBUG:
-                self.log.info('DEBUG')
-                break
 
         self.connection.writer.close()
         await self.connection.writer.wait_closed()
@@ -60,15 +57,29 @@ class NewRecordHandler(BaseHandler):
     log = logging.getLogger('New records')
 
     @classmethod
+    def set_method(self, record_handler):
+        self._record_handler = record_handler
+
+    @property
+    def record_handler(self):
+        return self._record_handler
+
+    @classmethod
+    def save(self):
+        loop = asyncio.get_running_loop()
+        loop.create_task(self._record_handler.save())
+
+    @classmethod
     async def handle(self, request):
         if request.request_type != 'new_record':
             return
-        if request.db_record:
-            method = NewRecordHandler
         self.log.debug('Handler started')
+        if request.db_record:
+            self.log.debug('New video record method')
+            self.set_method(NewVideoRecord)
         if request.camera_name:
             self.log.debug('Camera record method')
-            method = CameraRecord
+            self.set_method(CameraRecord)
 
         result = b""
         data = b""
@@ -87,16 +98,15 @@ class NewRecordHandler(BaseHandler):
         for record in records:
             if record != "":
                 self.log.debug('RECORD:%s', record)
-                await method.save_queue.put(json.loads(record))
-        loop = asyncio.get_running_loop()
-        loop.create_task(method.save())
+                await self.record_handler.save_queue.put(json.loads(record))
+        self.save()
         return True
 
 
 class VideoStreamRequestHandler(BaseHandler):
 
     log = logging.getLogger('Video Stream Request handler')
-    manager = VideoStreamManager(SignalHandler)
+    manager = VideoStreamManager()
 
     @classmethod
     async def handle(self, request):
@@ -112,7 +122,7 @@ class VideoStreamRequestHandler(BaseHandler):
 class VideoStreamResponseHandler(BaseHandler):
 
     log = logging.getLogger('Video Stream Source handler')
-    manager = VideoStreamManager(SignalHandler)
+    manager = VideoStreamManager()
 
     @classmethod
     async def handle(self, request):
@@ -128,7 +138,7 @@ class VideoStreamResponseHandler(BaseHandler):
 class VideoResponseHandler(BaseHandler):
 
     log = logging.getLogger('Video Response')
-    manager = VideoRequestManager(SignalHandler)
+    manager = VideoRequestManager()
     video_save_path = ''
     debug_video_save_path = ''
 
@@ -194,7 +204,7 @@ class VideoResponseHandler(BaseHandler):
 class VideoRequestHandler(BaseHandler):
 
     log = logging.getLogger('Video Request')
-    manager = VideoRequestManager(SignalHandler)
+    manager = VideoRequestManager()
 
     @classmethod
     async def handle(self, request):

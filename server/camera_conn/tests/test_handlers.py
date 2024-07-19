@@ -1,6 +1,10 @@
 import pytest
-from ..handlers import SignalHandler
+from ..handlers import (SignalHandler,
+                        NewRecordHandler,
+                        VideoStreamRequestHandler,
+                        VideoStreamResponseHandler,)
 from ..camera_utils import ServerRequest
+from ..db import NewVideoRecord, CameraRecord
 
 pytest_plugins = ('pytest_asyncio', )
 
@@ -64,25 +68,105 @@ def new_record_request():
 
 
 @pytest.fixture
-def new_video_record_request():
-    return ServerRequest(request_type='new_record', db_record='test_record')
+def new_video_record_request(mocker):
+    request = ServerRequest(request_type='new_record',
+                            db_record='test_record')
+    request.writer = mocker.AsyncMock()
+    request.reader = mocker.AsyncMock()
+    request.reader.read.return_value = b""
+    return request
 
 
 @pytest.fixture
-def new_camera_record():
-    return ServerRequest(request_type='new_record', camera_name='test_camera')
+def new_camera_record(mocker):
+    request = ServerRequest(request_type='new_record',
+                            camera_name='test_camera')
+    request.writer = mocker.AsyncMock()
+    request.reader = mocker.AsyncMock()
+    request.reader.read.return_value = b""
+    return request
+
+
+@pytest.fixture
+def new_record_handler(mocker):
+    handler = NewRecordHandler()
+    handler.save = mocker.AsyncMock()
+    return handler
 
 
 @pytest.mark.asyncio
 async def test_wrong_request_for_new_record_handler(wrong_request):
-    pass
+    result = await NewRecordHandler.handle(wrong_request)
+    assert result is None
 
 
 @pytest.mark.asyncio
-async def test_process_new_video_record(new_video_record_request):
-    pass
+async def test_set_new_video_record_save_method(new_video_record_request,
+                                                new_record_handler):
+    result = await new_record_handler.handle(new_video_record_request)
+    assert new_record_handler.record_handler is NewVideoRecord
+    assert result is True
 
 
 @pytest.mark.asyncio
-async def test_process_new_camera_record(new_camera_record):
-    pass
+async def test_close_connection_for_video_record(new_video_record_request,
+                                                 new_record_handler):
+    result = await new_record_handler.handle(new_video_record_request)
+    new_video_record_request.reader.read.assert_called()
+    new_video_record_request.writer.close.assert_called()
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_set_camera_record_save_mathod(new_camera_record,
+                                             new_record_handler):
+    result = await new_record_handler.handle(new_camera_record)
+    assert new_record_handler.record_handler is CameraRecord
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_close_connection_for_camera_record(new_camera_record,
+                                                  new_record_handler):
+    result = await new_record_handler.handle(new_camera_record)
+    new_camera_record.reader.read.assert_called()
+    new_camera_record.writer.close.assert_called()
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_save_called(new_camera_record, mocker):
+    NewRecordHandler.save = mocker.AsyncMock()
+    result = await NewRecordHandler.handle(new_camera_record)
+    NewRecordHandler.save.assert_called()
+    assert result is True
+
+
+# -----------------------------------------------
+# ------------ VideoStream request --------------
+# -----------------------------------------------
+
+@pytest.fixture
+def video_stream_request():
+    return ServerRequest(request_type='stream_request')
+
+
+@pytest.fixture
+def video_stream_request_handler(mocker):
+    handler = VideoStreamRequestHandler()
+    handler.manager = mocker.AsyncMock()
+    return handler
+
+
+@pytest.mark.asyncio
+async def test_video_stream_request_handler_wrong_request(wrong_request):
+    result = await VideoStreamRequestHandler.handle(wrong_request)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_video_stream_request_handler_request(video_stream_request,
+                                                    video_stream_request_handler):
+    result = await VideoStreamRequestHandler.handle(video_stream_request)
+    video_stream_request_handler.manager.responses.put.assert_awaite()
+    assert result is True
