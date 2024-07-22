@@ -272,8 +272,8 @@ def video_response(mocker):
 
 @pytest.fixture
 def video_response_handler(mocker):
-    handler = VideoResponseHandler()
-    handler.save_file = mocker.Mock()
+    handler = VideoResponseHandler
+    handler.save_file = mocker.AsyncMock()
     handler.manager.responses = mocker.AsyncMock()
     return handler
 
