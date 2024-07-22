@@ -2,7 +2,11 @@ import pytest
 from ..handlers import (SignalHandler,
                         NewRecordHandler,
                         VideoStreamRequestHandler,
-                        VideoStreamResponseHandler,)
+                        VideoStreamResponseHandler,
+                        VideoRequestHandler,
+                        VideoResponseHandler,
+                        AproveUserRequestHandler,
+                        AproveUserResponseHandler)
 from ..camera_utils import ServerRequest
 from ..db import NewVideoRecord, CameraRecord
 
@@ -154,19 +158,256 @@ def video_stream_request():
 @pytest.fixture
 def video_stream_request_handler(mocker):
     handler = VideoStreamRequestHandler()
-    handler.manager = mocker.AsyncMock()
+    handler.manager.requesters = mocker.AsyncMock()
     return handler
 
 
 @pytest.mark.asyncio
-async def test_video_stream_request_handler_wrong_request(wrong_request):
-    result = await VideoStreamRequestHandler.handle(wrong_request)
+async def test_video_stream_request_handler_wrong_request(
+    wrong_request,
+    video_stream_request_handler
+):
+    result = await video_stream_request_handler.handle(wrong_request)
     assert result is None
 
 
 @pytest.mark.asyncio
-async def test_video_stream_request_handler_request(video_stream_request,
-                                                    video_stream_request_handler):
-    result = await VideoStreamRequestHandler.handle(video_stream_request)
-    video_stream_request_handler.manager.responses.put.assert_awaite()
+async def test_video_stream_request_handler_request(
+    video_stream_request,
+    video_stream_request_handler
+):
+    result = await video_stream_request_handler.handle(video_stream_request)
+    video_stream_request_handler.manager \
+        .requesters \
+        .put \
+        .assert_called_with(video_stream_request)
+    assert result is True
+
+
+# -----------------------------------------------
+# ------------ VideoStream response -------------
+# -----------------------------------------------
+
+@pytest.fixture
+def video_stream_response():
+    return ServerRequest(request_type='stream_response')
+
+
+@pytest.fixture
+def video_stream_response_handler(mocker):
+    handler = VideoStreamResponseHandler()
+    handler.manager.responses = mocker.AsyncMock()
+    return handler
+
+
+@pytest.mark.asyncio
+async def test_video_stream_response_handler_wrong_request(
+    wrong_request,
+    video_stream_response_handler
+):
+    result = await video_stream_response_handler.handle(wrong_request)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_video_stream_response_handler_request(
+    video_stream_response,
+    video_stream_response_handler
+):
+    result = await video_stream_response_handler.handle(video_stream_response)
+    video_stream_response_handler.manager \
+        .responses \
+        .put \
+        .assert_called_with(video_stream_response)
+    assert result is True
+
+
+# -----------------------------------------------
+# ------------ Video Request --------------------
+# -----------------------------------------------
+
+@pytest.fixture
+def video_request():
+    return ServerRequest(request_type='video_request')
+
+
+@pytest.fixture
+def video_request_handler(mocker):
+    handler = VideoRequestHandler()
+    handler.manager.requesters = mocker.AsyncMock()
+    return handler
+
+
+@pytest.mark.asyncio
+async def test_video_request_handler_wrong_request(wrong_request,
+                                                   video_request_handler):
+    result = await video_request_handler.handle(wrong_request)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_video_request_handler_request(video_request,
+                                             video_request_handler):
+    result = await video_request_handler.handle(video_request)
+    video_request_handler.manager \
+        .requesters \
+        .put \
+        .assert_called_with(video_request)
+    assert result is True
+
+
+# -----------------------------------------------
+# ------------ Video Response -------------------
+# -----------------------------------------------
+
+@pytest.fixture
+def video_response(mocker):
+    request = ServerRequest(request_type='video_response',
+                            video_name='test_video',
+                            video_size=65000)
+    request.reader = mocker.AsyncMock()
+    request.writer = mocker.AsyncMock()
+    return request
+
+
+@pytest.fixture
+def video_response_handler(mocker):
+    handler = VideoResponseHandler()
+    handler.save_file = mocker.Mock()
+    handler.manager.responses = mocker.AsyncMock()
+    return handler
+
+
+@pytest.mark.asyncio
+async def test_video_response_handler_wrong_request(wrong_request,
+                                                    video_response_handler):
+    result = await video_response_handler.handle(wrong_request)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_video_file_zero_size(video_response,
+                                    video_response_handler):
+    video_response.video_size = 0
+    result = await video_response_handler.handle(video_response)
+    expected_call = ServerRequest(request_type='video_reponse',
+                                  request_result='failure',
+                                  video_name=video_response.video_name)
+    video_response_handler.manager \
+        .responses \
+        .put \
+        .assert_called_with(expected_call)
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_fail_to_receive_video(video_response,
+                                     video_response_handler):
+    video_response.video_size = 65000
+    video_response.reader.read.return_value = b""
+    result = await video_response_handler.handle(video_response)
+    expected_call = ServerRequest(request_type='video_reponse',
+                                  request_result='failure',
+                                  video_name=video_response.video_name)
+    video_response_handler.manager \
+        .responses \
+        .put \
+        .assert_called_with(expected_call)
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_successfully_receive_video(video_response,
+                                          video_response_handler):
+    video_response.video_size = 65000
+    video_response.reader.read.return_value = bytes(video_response.video_size)
+
+    result = await video_response_handler.handle(video_response)
+    expected_call = ServerRequest(request_type='video_reponse',
+                                  request_result='success',
+                                  video_name=video_response.video_name)
+    video_response_handler.manager \
+        .responses \
+        .put \
+        .assert_called_with(expected_call)
+    assert result is True
+
+
+# -----------------------------------------------
+# ------------ Aprove User Request --------------
+# -----------------------------------------------
+
+@pytest.fixture
+def aprove_request(mocker):
+    request = ServerRequest(request_type='aprove_user_request')
+    request.writer = mocker.AsyncMock()
+    return request
+
+
+@pytest.fixture
+def aprove_user_request_handler(mocker):
+    handler = AproveUserRequestHandler()
+    handler.signal.signal_queue = mocker.AsyncMock()
+    return handler
+
+
+@pytest.mark.asyncio
+async def test_aprove_user_request_handler_wrong_request(
+    wrong_request,
+    aprove_user_request_handler
+):
+    result = await aprove_user_request_handler.handle(wrong_request)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_aprove_user_request_handler_request(
+    aprove_request,
+    aprove_user_request_handler
+):
+    result = await aprove_user_request_handler.handle(aprove_request)
+    aprove_user_request_handler.signal \
+        .signal_queue \
+        .put \
+        .assert_called_with(aprove_request)
+    assert result is True
+
+
+# -----------------------------------------------
+# ------------ Aprove User response -------------
+# -----------------------------------------------
+
+@pytest.fixture
+def aprove_response(mocker):
+    request = ServerRequest(request_type='aprove_user_response',
+                            username='test_user')
+    request.writer = mocker.AsyncMock()
+    return request
+
+
+@pytest.fixture
+def aprove_user_response_handler(mocker):
+    handler = AproveUserResponseHandler
+    handler.record_handler = mocker.AsyncMock()
+    return handler
+
+
+@pytest.mark.asyncio
+async def test_aprove_user_response_handler_wrong_request(
+    wrong_request,
+    aprove_user_response_handler
+):
+    result = await aprove_user_response_handler.handle(wrong_request)
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_aprove_user_response_handler_request(
+    aprove_response,
+    aprove_user_response_handler
+):
+    result = await aprove_user_response_handler.handle(aprove_response)
+    aprove_user_response_handler.record_handler \
+        .save \
+        .assert_awaited_with(aprove_response)
     assert result is True

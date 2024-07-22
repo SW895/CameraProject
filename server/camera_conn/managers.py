@@ -269,3 +269,8 @@ class VideoRequest:
             self.log.info('RESPONSE NAME: %s', self.response.video_name)
 
         self.task_done = True
+
+
+class SignalManager(BaseManager):
+
+    pass

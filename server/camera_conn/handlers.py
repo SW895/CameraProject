@@ -135,72 +135,6 @@ class VideoStreamResponseHandler(BaseHandler):
         return True
 
 
-class VideoResponseHandler(BaseHandler):
-
-    log = logging.getLogger('Video Response')
-    manager = VideoRequestManager()
-    video_save_path = ''
-    debug_video_save_path = ''
-
-    @classmethod
-    async def handle(self, request):
-        if request.request_type != 'video_response':
-            return
-
-        self.log.info('Courutine started')
-        video_data = b""
-        data = b""
-
-        if request.video_size == 0:
-            response = ServerRequest(request_type='video_reponse',
-                                     request_result='failure',
-                                     video_name=request.video_name)
-            await self.manager.video_response_queue.put(response)
-            self.log.error('No such video')
-            return True
-
-        try:
-            while True:
-                data = await request.reader.read(655360)
-                video_data += data
-                if data == b"" or self.DEBUG:
-                    break
-        except asyncio.CancelledError:
-            pass
-        finally:
-            request.writer.close()
-            await request.writer.wait_closed()
-
-        if len(video_data) != request.video_size:
-            response = ServerRequest(request_type='video_reponse',
-                                     request_result='failure',
-                                     video_name=request.video_name)
-            await self.manager.video_response_queue.put(response)
-            self.log.warning('Failed to receive video file')
-            return True
-
-        self.log.info('%s', self.debug_video_save_path)
-        if self.DEBUG:
-            video_name_save = os.path.join(str(self.debug_video_save_path) +
-                                           '/' +
-                                           request.video_name.split('|')[0] +
-                                           '.mp4')
-        else:
-            video_name_save = os.path.join(str(self.video_save_path) +
-                                           request.video_name.split('|')[0] +
-                                           '.mp4')
-
-        self.log.info('Saving file')
-        async with open(video_name_save, "wb") as video:
-            await video.write(video_data)
-        response = ServerRequest(request_type='video_reponse',
-                                 request_result='success',
-                                 video_name=request.video_name)
-        await self.manager.responses.put(response)
-        self.log.info('File received')
-        return True
-
-
 class VideoRequestHandler(BaseHandler):
 
     log = logging.getLogger('Video Request')
@@ -216,31 +150,98 @@ class VideoRequestHandler(BaseHandler):
         return True
 
 
-class AproveUserResponseHandler(BaseHandler):
+class VideoResponseHandler(BaseHandler):
 
-    log = logging.getLogger('Aprove User Response')
+    log = logging.getLogger('Video Response')
+    manager = VideoRequestManager()
+    video_save_path = ''
+
+    def save_file(name, data):
+        with open(name, "wb") as video:
+            video.write(data)
 
     @classmethod
     async def handle(self, request):
-        if request.request_type != 'aprove_user_request':
+        if request.request_type != 'video_response':
             return
-        log = logging.getLogger('User aprove')
-        request.writer.close()
-        await request.writer.wait_closed()
-        log.info('Updating User:%s', request.username)
-        await UserRecord.save(request)
+
+        self.log.info('Courutine started')
+        video_data = b""
+        data = b""
+
+        if request.video_size == 0:
+            response = ServerRequest(request_type='video_reponse',
+                                     request_result='failure',
+                                     video_name=request.video_name)
+            await self.manager.responses.put(response)
+            self.log.error('No such video')
+            return True
+
+        try:
+            while len(video_data) < request.video_size:
+                data = await request.reader.read(65536)
+                video_data += data
+                if data == b"":
+                    break
+        except asyncio.CancelledError:
+            pass
+        finally:
+            request.writer.close()
+            await request.writer.wait_closed()
+
+        if len(video_data) != request.video_size:
+            response = ServerRequest(request_type='video_reponse',
+                                     request_result='failure',
+                                     video_name=request.video_name)
+            await self.manager.responses.put(response)
+            self.log.warning('Failed to receive video file')
+            return True
+
+        self.log.info('%s', self.video_save_path)
+        video_name_save = os.path.join(str(self.video_save_path) +
+                                       request.video_name.split('|')[0] +
+                                       '.mp4')
+
+        self.log.info('Saving file')
+        save_coro = asyncio.to_thread(self.save_file,
+                                      video_name_save,
+                                      video_data)
+        await save_coro
+        response = ServerRequest(request_type='video_reponse',
+                                 request_result='success',
+                                 video_name=request.video_name)
+        await self.manager.responses.put(response)
+        self.log.info('File received')
         return True
 
 
 class AproveUserRequestHandler(BaseHandler):
 
     log = logging.getLogger('Aprove User Request Handler')
+    signal = SignalHandler
+
+    @classmethod
+    async def handle(self, request):
+        if request.request_type != 'aprove_user_request':
+            return
+        self.log.debug('User Request processing %s', request)
+        await self.signal.signal_queue.put(request)
+        request.writer.close()
+        await request.writer.wait_closed()
+        return True
+
+
+class AproveUserResponseHandler(BaseHandler):
+
+    log = logging.getLogger('Aprove User Response')
+    record_handler = UserRecord
 
     @classmethod
     async def handle(self, request):
         if request.request_type != 'aprove_user_response':
             return
-        logging.debug('User Request processing %s', request)
-        await self.signal_queue.put(request)
-        request.connection.close()
+        request.writer.close()
+        await request.writer.wait_closed()
+        self.log.info('Updating User:%s', request.username)
+        await self.record_handler.save(request)
         return True
