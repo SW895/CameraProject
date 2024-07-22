@@ -9,7 +9,6 @@ class BaseManager:
     responses = asyncio.Queue()
     requesters = asyncio.Queue()
 
-    @classmethod
     def set_signal_handler(self, signal_handler):
         self._signal_hander = signal_handler
 
@@ -25,7 +24,6 @@ class BaseManager:
     async def process_responses(self):
         raise NotImplementedError
 
-    @classmethod
     async def send_request(self, signal):
         await self._signal_hander.signal_queue.put(signal)
 
@@ -273,4 +271,5 @@ class VideoRequest:
 
 class SignalManager(BaseManager):
 
-    pass
+    def __init__(self):
+        raise NotImplementedError

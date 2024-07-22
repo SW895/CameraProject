@@ -9,8 +9,6 @@ from .managers import VideoStreamManager, VideoRequestManager
 
 class BaseHandler(object):
 
-    DEBUG = False
-
     @classmethod
     async def handle(self, request):
         raise NotImplementedError
