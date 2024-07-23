@@ -40,18 +40,18 @@ class VideoStreamManager(BaseManager, metaclass=SingletonMeta):
                 requester = await self.requesters.get()
             except asyncio.CancelledError:
                 break
-
+            self.requesters.task_done()
             try:
                 current_channel = self.stream_channels[requester.camera_name]
             except KeyError:
                 await self.update_stream_channels()
+            try:
                 current_channel = self.stream_channels[requester.camera_name]
-
-            self.log.debug('Get stream requester')
-            await current_channel.add_consumer(requester)
-            self.requesters.task_done()
+            except KeyError:
+                self.log.error('No such camera')
+                continue
             self.log.debug('Starting channel')
-            self.loop.create_task(self.run_channel(current_channel))
+            self.loop.create_task(self.run_channel(current_channel, requester))
 
     async def process_responses(self):
         while True:
@@ -60,14 +60,14 @@ class VideoStreamManager(BaseManager, metaclass=SingletonMeta):
                 source = await self.responses.get()
             except asyncio.CancelledError:
                 break
+            self.responses.task_done()
             try:
                 current_channel = self.stream_channels[source.camera_name]
             except KeyError:
-                await self.update_stream_channels()
-                current_channel = self.stream_channels[source.camera_name]
+                self.log.error('No such channel')
+                continue
             self.log.debug('Get stream source')
             await current_channel.source_queue.put(source)
-            self.responses.task_done()
 
     async def update_stream_channels(self):
         self.stream_channels.clear()
@@ -76,7 +76,8 @@ class VideoStreamManager(BaseManager, metaclass=SingletonMeta):
             self.stream_channels[camera[0]] = StreamChannel(camera[0])
         self.log.debug('Channels updated')
 
-    async def run_channel(self, channel):
+    async def run_channel(self, channel, requester):
+        await channel.add_consumer(requester)
         if channel.consumer_number == 0:
             if channel.task:
                 self.log.debug('Cancelling task')
