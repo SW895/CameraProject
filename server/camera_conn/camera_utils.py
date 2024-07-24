@@ -14,6 +14,12 @@ class SingletonMeta(type):
         return cls._instances[cls]
 
 
+class StatusCode:
+
+    def __init__(status):
+        raise NotImplementedError
+
+
 class ServerRequest:
 
     def __init__(self, request_type,

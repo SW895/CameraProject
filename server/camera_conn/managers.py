@@ -1,7 +1,6 @@
 import asyncio
 import logging
 from .camera_utils import ServerRequest, SingletonMeta
-from .db import ActiveCameras
 
 
 class BaseManager:
@@ -71,38 +70,41 @@ class VideoStreamManager(BaseManager, metaclass=SingletonMeta):
 
     async def update_stream_channels(self):
         self.stream_channels.clear()
-        active_cameras = await ActiveCameras.get_active_camera_list()
+        active_cameras = await self.get_active_camera_list()
         for camera in active_cameras:
             self.stream_channels[camera[0]] = StreamChannel(camera[0])
         self.log.debug('Channels updated')
 
-    async def run_channel(self, channel, requester):
-        await channel.add_consumer(requester)
-        if channel.consumer_number == 0:
+    async def set_camera_list_updater(self, camera_handler):
+        self._camera_handler = camera_handler
+
+    async def get_active_camera_list(self):
+        return await self._camera_handler.get_acive_acamera_list()
+
+    async def run_channel(self, channel, requester):        
+        if channel.consumer_list:
+            self.log.debug('COURUTINE ALREADY RUNNING')
+        else:
             if channel.task:
                 self.log.debug('Cancelling task')
                 channel.task.cancel()
                 await channel.task
-            channel.consumer_number += 1
             self.log.debug('Sending stream request')
             request = ServerRequest(request_type='stream',
                                     camera_name=channel.camera_name)
             await self.send_request(request)
             self.log.debug('START COURUTINE')
             channel.task = self.loop.create_task(channel.run_channel())
-            return
-        self.log.debug('COURUTINE ALREADY RUNNING')
-        channel.consumer_number += 1
+        await channel.add_consumer(requester)
 
 
 class StreamChannel:
 
     source_queue = asyncio.Queue()
-    consumer_number = 0
     consumer_list = []
     source = None
     task = None
-    source_timeout = 1
+    source_timeout = 0.5
 
     def __init__(self, camera_name):
         self.camera_name = camera_name
@@ -119,12 +121,14 @@ class StreamChannel:
         except TimeoutError:
             self.log.debug('SOURCE TIMEOUT')
             await self.clean_up()
-            return
+            return 100
 
-        self.log.debug('Get stream source')
+        self.log.debug('Get stream source %s', self.source)
         self.source_queue.task_done()
+        self.log.debug('%s, %s', self.consumer_list, self.source.writer)
+
         try:
-            while self.consumer_number > 0 and self.source:
+            while self.consumer_list and self.source:
                 data = await self.source.reader.read(65536)
                 self.log.debug('DATA RECEIVED %s', len(data))
                 if not data:
@@ -136,6 +140,7 @@ class StreamChannel:
             self.log.debug('Courutine cancelled')
         finally:
             await self.clean_up()
+            return 200
 
     async def send_to_all(self, data):
         for consumer in self.consumer_list:
@@ -147,7 +152,6 @@ class StreamChannel:
                 self.log.debug('Connection to consumer lost: %s',
                                error)
                 self.consumer_list.remove(consumer)
-                self.consumer_number -= 1
 #               consumer.writer.close()
 #               await consumer.writer.wait_closed() ?????????????
 
@@ -166,9 +170,7 @@ class StreamChannel:
                 consumer.writer.close()
                 await consumer.writer.wait_closed()
                 self.consumer_list.remove(consumer)
-                self.log.debug('CLOSE CONNECTION TO CONSUMER %s',
-                               self.consumer_number)
-        self.consumer_number = 0
+                self.log.debug('CLOSE CONNECTION TO CONSUMER')
         self.source = None
         self.task = None
         self.log.debug('COURUTINE ENDED')

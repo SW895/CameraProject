@@ -4,6 +4,7 @@ import socket
 import logging
 from cam_server import Server
 from managers import VideoStreamManager, VideoRequestManager
+from db import ActiveCameras
 from handlers import (
                         VideoStreamRequestHandler,
                         VideoStreamResponseHandler,
@@ -44,8 +45,11 @@ external_server.add_handler(VideoStreamResponseHandler,
                             AproveUserResponseHandler,
                             SignalHandler,
                             NewRecordHandler)
-stream_manager = VideoStreamManager(SignalHandler)
-video_manager = VideoRequestManager(SignalHandler)
+stream_manager = VideoStreamManager()
+stream_manager.set_signal_handler(SignalHandler)
+stream_manager.set_camera_list_updater(ActiveCameras)
+video_manager = VideoRequestManager()
+video_manager.set_signal_handler(SignalHandler)
 
 loop = asyncio.get_event_loop()
 loop.create_task(stream_manager.run_manager())
