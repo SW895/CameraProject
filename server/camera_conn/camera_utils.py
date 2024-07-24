@@ -56,8 +56,8 @@ class ServerRequest:
            (self.request_result == other.request_result) and \
            (self.db_record == other.db_record) and \
            (self.camera_name == other.camera_name) and \
-           (self.reader == other.connection) and \
-           (self.writer == other.address):
+           (self.reader == other.reader) and \
+           (self.writer == other.writer):
             return True
         return False
 

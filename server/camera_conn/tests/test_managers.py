@@ -226,33 +226,96 @@ async def test_proper_clean_up(stream_channel,
     assert stream_channel.consumer_list == []
     assert stream_channel.task is None
 
+
 # -----------------------------------------------
 # ------------ Video Request manager ------------
 # -----------------------------------------------
-"""
-@pytest.mark.asyncio
-async def test_create_new_video_request():
-    pass
+
+@pytest.fixture
+def videorequest_manager(mocker, video_request, video_response):
+    manager = VideoRequestManager()
+    manager.loop = mocker.AsyncMock()
+    manager.requesters = mocker.AsyncMock()
+    manager.requesters.get.side_effect = ErrorAfter(limit=1,
+                                                    return_value=video_request)
+    manager.responses = mocker.AsyncMock()
+    manager.responses.get.side_effect = ErrorAfter(limit=1,
+                                                   return_value=video_response)
+    manager.send_request = mocker.AsyncMock()
+    return manager
+
+
+@pytest.fixture
+def video_request(mocker):
+    request = ServerRequest(request_type='video_request',
+                            video_name='test_video')
+    request.writer = mocker.AsyncMock()
+    request.reader = mocker.AsyncMock()
+    return request
+
+
+@pytest.fixture
+def video_response(mocker):
+    response = ServerRequest(request_type='video_response',
+                             video_size=1000,
+                             video_name='test_video')
+    response.writer = mocker.AsyncMock()
+    response.reader = mocker.AsyncMock()
+    return response
+
+
+@pytest.fixture
+def video_request_object(mocker):
+    return VideoRequest()
 
 
 @pytest.mark.asyncio
-async def test_add_requester_to_video_request():
-    pass
+async def test_create_new_video_request(videorequest_manager, video_request):
+    with pytest.raises(CallableExhausted):
+        await videorequest_manager.process_requesters()
+    assert videorequest_manager.requested_videos == \
+        {video_request.video_name: VideoRequest(video_request.video_name)}
 
 
 @pytest.mark.asyncio
-async def test_failed_response():
-    pass
+async def test_add_requester_to_existing_video_request(videorequest_manager,
+                                                       video_request):
+    videorequest_manager.requested_videos[video_request.video_name] = \
+        VideoRequest(video_request.video_name)
+    with pytest.raises(CallableExhausted):
+        await videorequest_manager.process_requesters()
+    assert videorequest_manager.requested_videos[video_request.video_name] \
+        .requesters[0] == video_request
 
 
 @pytest.mark.asyncio
-async def test_success_response():
-    pass
+async def test_failed_response(videorequest_manager):
+    with pytest.raises(CallableExhausted):
+        try:
+            await videorequest_manager.process_responses()
+        except KeyError:
+            pytest.fail('KeyError not handled')
 
 
 @pytest.mark.asyncio
-async def test_remove_expired_requests():
-    pass
+async def test_success_response(videorequest_manager,
+                                video_response,
+                                mocker):
+    record = VideoRequest(video_response.video_name)
+    record.response_queue = mocker.AsyncMock()
+    videorequest_manager.requested_videos[video_response.video_name] = record
+    with pytest.raises(CallableExhausted):
+        await videorequest_manager.process_responses()
+    record.response_queue.put.assert_called_with(video_response)
+
+
+@pytest.mark.asyncio
+async def test_remove_expired_requests(videorequest_manager):
+    finished_task = VideoRequest('finished_task')
+    finished_task.task_done = True
+    active_task = VideoRequest('active_task')
+    videorequest_manager.requested_videos = {'finished_task': finished_task,
+                                             'active_task': active_task}
 
 
 # -----------------------------------------------
@@ -272,4 +335,3 @@ async def test_timeout_falure():
 @pytest.mark.asyncio
 async def test_send_response():
     pass
-"""

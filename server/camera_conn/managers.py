@@ -81,7 +81,7 @@ class VideoStreamManager(BaseManager, metaclass=SingletonMeta):
     async def get_active_camera_list(self):
         return await self._camera_handler.get_acive_acamera_list()
 
-    async def run_channel(self, channel, requester):        
+    async def run_channel(self, channel, requester):
         if channel.consumer_list:
             self.log.debug('COURUTINE ALREADY RUNNING')
         else:
@@ -109,6 +109,14 @@ class StreamChannel:
     def __init__(self, camera_name):
         self.camera_name = camera_name
         self.log = logging.getLogger(self.camera_name)
+
+    def __eq__(self, other):
+        SameObject = isinstance(other, self.__class__)
+        if SameObject:
+            return True
+        if self.camera_name == other.camera_name:
+            return True
+        return False
 
     async def add_consumer(self, consumer):
         self.log.debug('Get New Consumer')
@@ -198,15 +206,15 @@ class VideoRequestManager(BaseManager, metaclass=SingletonMeta):
             try:
                 current_request = self.requested_videos[requester.video_name]
             except KeyError:
-                request = VideoRequest(self.signal, requester.video_name)
-                self.requested_videos[requester.video_name] = request
+                self.requested_videos[requester.video_name] = VideoRequest(
+                                                        requester.video_name)
                 current_request = self.requested_videos[requester.video_name]
                 self.loop.create_task(current_request.process_request())
                 self.log.debug('Created video request')
             else:
                 self.log.debug('Video request alredy created')
-            finally:
-                current_request.add_requester(requester)
+            self.log.debug('Add requester to list')
+            await current_request.add_requester(requester)
 
     async def process_responses(self):
         while True:
@@ -227,10 +235,14 @@ class VideoRequestManager(BaseManager, metaclass=SingletonMeta):
             self.responses.task_done()
 
     async def garb_collector(self):
-        await asyncio.sleep(10)
-        for request in self.requested_videos.keys():
-            if self.requested_videos[request].task_done:
-                del self.requested_videos[request]
+        while True:
+            try:
+                await asyncio.sleep(10)
+                for request in self.requested_videos.keys():
+                    if self.requested_videos[request].task_done:
+                        del self.requested_videos[request]
+            except asyncio.CancelledError:
+                break
 
 
 class VideoRequest:
@@ -241,15 +253,23 @@ class VideoRequest:
     requesters = []
     response_timeout = 5
 
-    def __init__(self, signal_handler, video_name):
-        self.signal = signal_handler
+    def __init__(self, video_name):
         self.video_name = video_name
         self.log = logging.getLogger(self.video_name)
+
+    def __eq__(self, other):
+        SameObject = isinstance(other, self.__class__)
+        if SameObject:
+            return True
+        if self.video_name == other.video_name:
+            return True
+        return False
 
     async def send_request(self, request):
         await self.signal.signal_queue.put(request)
 
     async def add_requester(self, requester):
+        self.log.debug('Requester added')
         self.requesters.append(requester)
 
     async def process_request(self):
