@@ -238,9 +238,12 @@ class VideoRequestManager(BaseManager, metaclass=SingletonMeta):
         while True:
             try:
                 await asyncio.sleep(10)
-                for request in self.requested_videos.keys():
+                task_done_list = []
+                for request in self.requested_videos:
                     if self.requested_videos[request].task_done:
-                        del self.requested_videos[request]
+                        task_done_list.append(request)
+                for request in task_done_list:
+                    del self.requested_videos[request]
             except asyncio.CancelledError:
                 break
 
@@ -277,14 +280,16 @@ class VideoRequest:
                                 video_name=self.video_name)
         await self.send_request(request)
         try:
-            self.response = await asyncio.wait_for(self.response_queue.get(),
-                                                   self.response_timeout)
+            response = await asyncio.wait_for(self.response_queue.get(),
+                                              self.response_timeout)
         except TimeoutError:
             self.log.debug('Response TIMEOUT')
-            self.response = 'failure'
+            self.response = 'timeout error'
+        else:
+            self.response = response.request_result
 
         for requester in self.requesters:
-            requester.writer.write(self.response.request_result.encode())
+            requester.writer.write(self.response.encode())
             requester.writer.close()
             await requester.writer.wait_closed()
             self.log.info('RESPONSE NAME: %s', self.response.video_name)

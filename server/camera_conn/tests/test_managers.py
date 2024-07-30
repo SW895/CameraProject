@@ -248,7 +248,8 @@ def videorequest_manager(mocker, video_request, video_response):
 @pytest.fixture
 def video_request(mocker):
     request = ServerRequest(request_type='video_request',
-                            video_name='test_video')
+                            video_name='test_video',
+                            )
     request.writer = mocker.AsyncMock()
     request.reader = mocker.AsyncMock()
     return request
@@ -265,7 +266,10 @@ def video_response(mocker):
 
 
 @pytest.fixture
-def video_request_object(mocker):
+def video_request_object(mocker, video_response):
+    videorequest = VideoRequest('test_video')
+    videorequest.response_queue = mocker.AsyncMock()
+    videorequest.response_queue.return_value = video_response
     return VideoRequest()
 
 
@@ -310,12 +314,19 @@ async def test_success_response(videorequest_manager,
 
 
 @pytest.mark.asyncio
-async def test_remove_expired_requests(videorequest_manager):
+async def test_remove_expired_requests(videorequest_manager, mocker):
+    import asyncio
+    asyncio.sleep = mocker.AsyncMock()
+    asyncio.sleep.side_effect = ErrorAfter(limit=1, return_value=None)
     finished_task = VideoRequest('finished_task')
     finished_task.task_done = True
     active_task = VideoRequest('active_task')
     videorequest_manager.requested_videos = {'finished_task': finished_task,
                                              'active_task': active_task}
+    with pytest.raises(CallableExhausted):
+        await videorequest_manager.garb_collector()
+    assert videorequest_manager.requested_videos['active_task']
+    assert len(videorequest_manager.requested_videos.keys()) == 1
 
 
 # -----------------------------------------------
@@ -323,15 +334,21 @@ async def test_remove_expired_requests(videorequest_manager):
 # -----------------------------------------------
 
 @pytest.mark.asyncio
-async def test_add_requester():
-    pass
+async def test_add_requester(video_request_object, video_request):
+    await video_request_object(video_request)
+    assert video_request_object.requesters[0] == video_request
 
 
 @pytest.mark.asyncio
-async def test_timeout_falure():
-    pass
+async def test_timeout_falure(video_request_object, video_request):
+    video_request_object.add_requester(video_request)
+    video_request_object.response_queue.side_effect = TimeoutError
+    await video_request_object.process_request()
+    response = 'timeout error'
+    video_request.writer.write.assert_called_with(response.encode())
 
 
 @pytest.mark.asyncio
-async def test_send_response():
+async def test_send_response(video_request_object, video_request):
+    video_request_object.add_requester(video_request)
     pass
