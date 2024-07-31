@@ -3,29 +3,9 @@ from ..managers import (VideoRequestManager,
                         VideoStreamManager,
                         VideoRequest,
                         StreamChannel)
-from ..camera_utils import ServerRequest
-
-
-class ErrorAfter(object):
-    '''
-    Callable that will raise `CallableExhausted`
-    exception after `limit` calls
-
-    '''
-    def __init__(self, limit, return_value):
-        self.limit = limit
-        self.calls = 0
-        self.return_value = return_value
-
-    def __call__(self, buffer=0):
-        self.calls += 1
-        if self.calls > self.limit:
-            raise CallableExhausted
-        return self.return_value
-
-
-class CallableExhausted(Exception):
-    pass
+from ..camera_utils import (ServerRequest,
+                            ErrorAfter,
+                            CallableExhausted)
 
 
 # -----------------------------------------------
@@ -259,7 +239,8 @@ def video_request(mocker):
 def video_response(mocker):
     response = ServerRequest(request_type='video_response',
                              video_size=1000,
-                             video_name='test_video')
+                             video_name='test_video',
+                             request_result='failure')
     response.writer = mocker.AsyncMock()
     response.reader = mocker.AsyncMock()
     return response
@@ -267,10 +248,10 @@ def video_response(mocker):
 
 @pytest.fixture
 def video_request_object(mocker, video_response):
-    videorequest = VideoRequest('test_video')
+    videorequest = VideoRequest(video_name='test_video')
     videorequest.response_queue = mocker.AsyncMock()
     videorequest.response_queue.return_value = video_response
-    return VideoRequest()
+    return videorequest
 
 
 @pytest.mark.asyncio
@@ -279,6 +260,7 @@ async def test_create_new_video_request(videorequest_manager, video_request):
         await videorequest_manager.process_requesters()
     assert videorequest_manager.requested_videos == \
         {video_request.video_name: VideoRequest(video_request.video_name)}
+    videorequest_manager.send_request.assert_called_with(video_request)
 
 
 @pytest.mark.asyncio
@@ -335,20 +317,29 @@ async def test_remove_expired_requests(videorequest_manager, mocker):
 
 @pytest.mark.asyncio
 async def test_add_requester(video_request_object, video_request):
-    await video_request_object(video_request)
+    await video_request_object.add_requester(video_request)
     assert video_request_object.requesters[0] == video_request
 
 
 @pytest.mark.asyncio
 async def test_timeout_falure(video_request_object, video_request):
-    video_request_object.add_requester(video_request)
-    video_request_object.response_queue.side_effect = TimeoutError
+    await video_request_object.add_requester(video_request)
+    video_request_object.response_queue.get.side_effect = TimeoutError
     await video_request_object.process_request()
-    response = 'timeout error'
+    response = 'timeout_error'
+    assert video_request_object.response == response
+    video_request.writer.write.assert_called()
     video_request.writer.write.assert_called_with(response.encode())
 
 
 @pytest.mark.asyncio
-async def test_send_response(video_request_object, video_request):
-    video_request_object.add_requester(video_request)
-    pass
+async def test_send_response(video_request_object,
+                             video_request,
+                             video_response):
+    await video_request_object.add_requester(video_request)
+    video_request_object.response_queue.get.side_effect = None
+    video_request_object.response_queue.get.return_value = video_response
+    await video_request_object.process_request()
+    response = video_response.request_result
+    assert video_request_object.response == response
+    video_request.writer.write.assert_called_with(response.encode())

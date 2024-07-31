@@ -206,15 +206,22 @@ class VideoRequestManager(BaseManager, metaclass=SingletonMeta):
             try:
                 current_request = self.requested_videos[requester.video_name]
             except KeyError:
-                self.requested_videos[requester.video_name] = VideoRequest(
-                                                        requester.video_name)
-                current_request = self.requested_videos[requester.video_name]
-                self.loop.create_task(current_request.process_request())
-                self.log.debug('Created video request')
+                current_request = await self.create_new_request(
+                                                requester.video_name)
             else:
                 self.log.debug('Video request alredy created')
             self.log.debug('Add requester to list')
             await current_request.add_requester(requester)
+
+    async def create_new_request(self, video_name):
+        self.requested_videos[video_name] = VideoRequest(video_name)
+        current_request = self.requested_videos[video_name]
+        self.loop.create_task(current_request.process_request())
+        self.log.debug('Created video request')
+        request = ServerRequest(request_type='video',
+                                video_name=video_name)
+        await self.send_request(request)
+        return current_request
 
     async def process_responses(self):
         while True:
@@ -268,33 +275,29 @@ class VideoRequest:
             return True
         return False
 
-    async def send_request(self, request):
-        await self.signal.signal_queue.put(request)
-
     async def add_requester(self, requester):
         self.log.debug('Requester added')
         self.requesters.append(requester)
 
     async def process_request(self):
-        request = ServerRequest(request_type='video',
-                                video_name=self.video_name)
-        await self.send_request(request)
         try:
             response = await asyncio.wait_for(self.response_queue.get(),
                                               self.response_timeout)
         except TimeoutError:
             self.log.debug('Response TIMEOUT')
-            self.response = 'timeout error'
+            self.response = 'timeout_error'
         else:
             self.response = response.request_result
+            self.log.debug('GET RESPONSE')
 
         for requester in self.requesters:
             requester.writer.write(self.response.encode())
             requester.writer.close()
             await requester.writer.wait_closed()
-            self.log.info('RESPONSE NAME: %s', self.response.video_name)
+            self.log.info('RESPONSE NAME: %s', self.response)
 
         self.task_done = True
+        self.requesters = []
 
 
 class SignalManager(BaseManager):
