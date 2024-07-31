@@ -300,7 +300,7 @@ class VideoRequest:
         self.requesters = []
 
 
-class SignalManager(BaseManager):
+class SignalManager(BaseManager, metaclass=SingletonMeta):
 
     def __init__(self):
         raise NotImplementedError

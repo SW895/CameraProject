@@ -11,8 +11,7 @@ from pathlib import Path
 from psycopg import sql
 from camera_utils import (
                             check_thread,
-                            new_thread,
-                            connect_to_db
+                            new_thread
                         )
 
 
