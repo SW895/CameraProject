@@ -1,6 +1,11 @@
 import asyncio
 import logging
-from .camera_utils import ServerRequest, SingletonMeta
+from camera_utils import SingletonMeta
+from cam_server import RequestBuilder
+from settings import (SOCKET_BUFF_SIZE,
+                      STREAM_SOURCE_TIMEOUT,
+                      VIDEO_REQUEST_TIMEOUT,
+                      GARB_COLLECTOR_TIMEOUT)
 
 
 class BaseManager:
@@ -16,6 +21,7 @@ class BaseManager:
         self.loop = asyncio.get_running_loop()
         self.loop.create_task(self.process_requesters())
         self.loop.create_task(self.process_responses())
+        self.loop.create_task(self.garb_collector())
 
     async def process_requesters(self):
         raise NotImplementedError
@@ -24,7 +30,10 @@ class BaseManager:
         raise NotImplementedError
 
     async def send_request(self, signal):
-        await self._signal_hander.signal_queue.put(signal)
+        await self._signal_hander.responses.put(signal)
+
+    async def garb_collector(self):
+        pass
 
 
 class VideoStreamManager(BaseManager, metaclass=SingletonMeta):
@@ -75,7 +84,7 @@ class VideoStreamManager(BaseManager, metaclass=SingletonMeta):
             self.stream_channels[camera[0]] = StreamChannel(camera[0])
         self.log.debug('Channels updated')
 
-    async def set_camera_list_updater(self, camera_handler):
+    def set_camera_list_updater(self, camera_handler):
         self._camera_handler = camera_handler
 
     async def get_active_camera_list(self):
@@ -90,8 +99,11 @@ class VideoStreamManager(BaseManager, metaclass=SingletonMeta):
                 channel.task.cancel()
                 await channel.task
             self.log.debug('Sending stream request')
-            request = ServerRequest(request_type='stream',
-                                    camera_name=channel.camera_name)
+            builder = RequestBuilder().with_args(
+                        request_type='stream',
+                        camera_name=channel.camera_name,
+                        client_id='main')
+            request = builder.build()
             await self.send_request(request)
             self.log.debug('START COURUTINE')
             channel.task = self.loop.create_task(channel.run_channel())
@@ -104,7 +116,8 @@ class StreamChannel:
     consumer_list = []
     source = None
     task = None
-    source_timeout = 0.5
+    buff_size = SOCKET_BUFF_SIZE
+    source_timeout = STREAM_SOURCE_TIMEOUT
 
     def __init__(self, camera_name):
         self.camera_name = camera_name
@@ -137,7 +150,7 @@ class StreamChannel:
 
         try:
             while self.consumer_list and self.source:
-                data = await self.source.reader.read(65536)
+                data = await self.source.reader.read(self.buff_size)
                 self.log.debug('DATA RECEIVED %s', len(data))
                 if not data:
                     self.log.debug('Connection to camera lost')
@@ -188,10 +201,7 @@ class VideoRequestManager(BaseManager, metaclass=SingletonMeta):
 
     log = logging.getLogger('Video Request Manager')
     requested_videos = {}
-
-    async def run_manager(self):
-        await super().run_manager()
-        self.loop.create_task(self.garb_collector())
+    garb_collector_timeout = GARB_COLLECTOR_TIMEOUT
 
     async def process_requesters(self):
         while True:
@@ -218,8 +228,10 @@ class VideoRequestManager(BaseManager, metaclass=SingletonMeta):
         current_request = self.requested_videos[video_name]
         self.loop.create_task(current_request.process_request())
         self.log.debug('Created video request')
-        request = ServerRequest(request_type='video',
-                                video_name=video_name)
+        builder = RequestBuilder().with_args(request_type='video',
+                                             video_name=video_name,
+                                             client_id='main')
+        request = builder.build()
         await self.send_request(request)
         return current_request
 
@@ -244,7 +256,7 @@ class VideoRequestManager(BaseManager, metaclass=SingletonMeta):
     async def garb_collector(self):
         while True:
             try:
-                await asyncio.sleep(10)
+                await asyncio.sleep(self.garb_collector_timeout)
                 task_done_list = []
                 for request in self.requested_videos:
                     if self.requested_videos[request].task_done:
@@ -261,7 +273,7 @@ class VideoRequest:
     response_queue = asyncio.Queue()
     response = None
     requesters = []
-    response_timeout = 5
+    response_timeout = VIDEO_REQUEST_TIMEOUT
 
     def __init__(self, video_name):
         self.video_name = video_name
@@ -300,7 +312,85 @@ class VideoRequest:
         self.requesters = []
 
 
-class SignalManager(BaseManager, metaclass=SingletonMeta):
+class SignalCollector(BaseManager, metaclass=SingletonMeta):
 
-    def __init__(self):
-        raise NotImplementedError
+    log = logging.getLogger('Signal manager')
+    clients = {}
+    garb_collector_timeout = GARB_COLLECTOR_TIMEOUT
+
+    async def process_requesters(self):
+        while True:
+            try:
+                requester = await self.requesters.get()
+            except asyncio.CancelledError:
+                break
+
+            try:
+                current_client = self.clients[requester.client_id]
+            except KeyError:
+                current_client = \
+                    self.clients[requester.client_id] = Client(requester)
+            else:
+                current_client.writer.close()
+                await current_client.writer.wait_closed()
+                current_client = requester
+            self.loop.create_task(current_client.handle_signals())
+
+    async def process_responses(self):
+        while True:
+            try:
+                signal = await self.responses.get()
+            except asyncio.CancelledError:
+                break
+
+            try:
+                current_client = self.clients[signal.client_id]
+            except KeyError:
+                self.log.error('No such client %s', signal.client_id)
+            else:
+                await current_client.signal_queue.put(signal)
+
+    async def garb_collector(self):
+        while True:
+            try:
+                await asyncio.sleep(self.garb_collector_timeout)
+                dead_client_list = []
+                for client in self.clients:
+                    if self.clients[client].dead:
+                        dead_client_list.append(client)
+                for client in dead_client_list:
+                    del self.clients[client]
+            except asyncio.CancelledError:
+                break
+
+
+class Client:
+
+    dead = False
+    signal_queue = asyncio.Queue()
+
+    def __init__(self, client):
+        self.client = client
+        self.log = logging.getLogger(client.client_id)
+
+    async def handle_signals(self):
+        while True:
+            try:
+                await self.process_signals()
+            except Exception as error:
+                self.log.warning('Connection lost. Error:%s', error)
+                break
+
+        self.client.writer.close()
+        await self.client.writer.wait_closed()
+
+    @classmethod
+    async def process_signals(self):
+        self.log.info('Waiting for new signal')
+        signal = await self.signal_queue.get()
+        self.signal_queue.task_done()
+        self.log.info('Get signal:%s', signal.request_type)
+        self.log.info('Sending signal')
+        message = signal.serialize() + '\n'
+        self.client.writer.write(message.encode())
+        await self.client.writer.drain()

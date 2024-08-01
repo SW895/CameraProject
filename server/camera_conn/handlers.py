@@ -2,9 +2,14 @@ import asyncio
 import logging
 import json
 import os
-from .db import NewVideoRecord, CameraRecord, UserRecord
-from .camera_utils import SingletonMeta, ServerRequest
-from .managers import VideoStreamManager, VideoRequestManager
+from settings import SOCKET_BUFF_SIZE
+from db import (NewVideoRecord,
+                CameraRecord,
+                UserRecord)
+from cam_server import RequestBuilder
+from managers import (VideoStreamManager,
+                      VideoRequestManager,
+                      SignalCollector)
 
 
 class BaseHandler(object):
@@ -14,44 +19,23 @@ class BaseHandler(object):
         raise NotImplementedError
 
 
-class SignalHandler(BaseHandler, metaclass=SingletonMeta):
+class SignalHandler(BaseHandler):
 
-    signal_queue = asyncio.Queue()
     log = logging.getLogger('Signal handler')
-    connection = None
+    manager = SignalCollector()
 
     @classmethod
-    async def handle(self, connection):
-        if connection.request_type != 'signal':
+    async def handle(self, request):
+        if request.request_type != 'signal':
             return
-        self.connection = connection
-        self.log.info('Handler started')
-        self.log.info('%s', self.connection.writer)
-        while True:
-            try:
-                await self.process_signals()
-            except Exception as error:
-                self.log.warning('Connection lost. Error:%s', error)
-                break
 
-        self.connection.writer.close()
-        await self.connection.writer.wait_closed()
+        await self.manager.requesters.put(request)
         return True
-
-    @classmethod
-    async def process_signals(self):
-        self.log.info('Waiting for new signal')
-        signal = await self.signal_queue.get()
-        self.signal_queue.task_done()
-        self.log.info('Get signal:%s', signal.request_type)
-        self.log.info('Sending signal')
-        message = signal.serialize() + '\n'
-        self.connection.writer.write(message.encode())
-        await self.connection.writer.drain()
 
 
 class NewRecordHandler(BaseHandler):
 
+    buff_size = SOCKET_BUFF_SIZE
     log = logging.getLogger('New records')
 
     @classmethod
@@ -69,21 +53,26 @@ class NewRecordHandler(BaseHandler):
 
     @classmethod
     async def handle(self, request):
-        if request.request_type != 'new_record':
+        if request.request_type != 'new_record' or \
+           request.request_type != 'aprove_user_response':
             return
-        self.log.debug('Handler started')
+
         if request.db_record:
             self.log.debug('New video record method')
             self.set_method(NewVideoRecord)
-        if request.camera_name:
+        elif request.camera_name:
             self.log.debug('Camera record method')
             self.set_method(CameraRecord)
+        elif request.username:
+            self.log.debug('User record method')
+            self.set_method(UserRecord)
 
+        self.log.debug('Handler started')
         result = b""
         data = b""
         self.log.info('Receiving new records')
         while True:
-            data = await request.reader.read(100000)
+            data = await request.reader.read(self.buff_size)
             result += data
             if data == b"":
                 break
@@ -153,6 +142,7 @@ class VideoResponseHandler(BaseHandler):
     log = logging.getLogger('Video Response')
     manager = VideoRequestManager()
     video_save_path = ''
+    buff_size = SOCKET_BUFF_SIZE
 
     def save_file(name, data):
         with open(name, "wb") as video:
@@ -168,16 +158,19 @@ class VideoResponseHandler(BaseHandler):
         data = b""
 
         if request.video_size == 0:
-            response = ServerRequest(request_type='video_reponse',
-                                     request_result='failure',
-                                     video_name=request.video_name)
+            builder = RequestBuilder().with_args(
+                        request_type='video_reponse',
+                        request_result='failure',
+                        video_name=request.video_name,
+                        client_id='main')
+            response = builder.build()
             await self.manager.responses.put(response)
             self.log.error('No such video')
             return True
 
         try:
             while len(video_data) < request.video_size:
-                data = await request.reader.read(65536)
+                data = await request.reader.read(self.buff_size)
                 video_data += data
                 if data == b"":
                     break
@@ -188,9 +181,12 @@ class VideoResponseHandler(BaseHandler):
             await request.writer.wait_closed()
 
         if len(video_data) != request.video_size:
-            response = ServerRequest(request_type='video_reponse',
-                                     request_result='failure',
-                                     video_name=request.video_name)
+            builder = RequestBuilder().with_args(
+                        request_type='video_reponse',
+                        request_result='failure',
+                        video_name=request.video_name,
+                        client_id='main')
+            response = builder.build()
             await self.manager.responses.put(response)
             self.log.warning('Failed to receive video file')
             return True
@@ -205,9 +201,12 @@ class VideoResponseHandler(BaseHandler):
                                       video_name_save,
                                       video_data)
         await save_coro
-        response = ServerRequest(request_type='video_reponse',
-                                 request_result='success',
-                                 video_name=request.video_name)
+        builder = RequestBuilder().with_args(
+                        request_type='video_reponse',
+                        request_result='success',
+                        video_name=request.video_name,
+                        client_id='main')
+        response = builder.build()
         await self.manager.responses.put(response)
         self.log.info('File received')
         return True
@@ -216,30 +215,14 @@ class VideoResponseHandler(BaseHandler):
 class AproveUserRequestHandler(BaseHandler):
 
     log = logging.getLogger('Aprove User Request Handler')
-    signal = SignalHandler
+    signal = SignalCollector()
 
     @classmethod
     async def handle(self, request):
         if request.request_type != 'aprove_user_request':
             return
         self.log.debug('User Request processing %s', request)
-        await self.signal.signal_queue.put(request)
+        await self.signal.responses.put(request)
         request.writer.close()
         await request.writer.wait_closed()
-        return True
-
-
-class AproveUserResponseHandler(BaseHandler):
-
-    log = logging.getLogger('Aprove User Response')
-    record_handler = UserRecord
-
-    @classmethod
-    async def handle(self, request):
-        if request.request_type != 'aprove_user_response':
-            return
-        request.writer.close()
-        await request.writer.wait_closed()
-        self.log.info('Updating User:%s', request.username)
-        await self.record_handler.save(request)
         return True

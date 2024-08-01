@@ -1,15 +1,16 @@
 import asyncio
 import psycopg
 import logging
-# import json
-import os
 from psycopg import sql
-# from .camera_utils import ServerRequest
+from settings import (DB_HOST,
+                      DB_NAME,
+                      DB_PASSWORD,
+                      DB_PORT,
+                      DB_USER)
 
 
 class BaseRecordHandling:
 
-    DEBUG = False
     save_queue = asyncio.Queue()
     cur = None
     db_conn = None
@@ -25,7 +26,7 @@ class NewVideoRecord(BaseRecordHandling):
     @classmethod
     async def save(self):
         self.log.info('Connection to DB')
-        self.db_conn, self.cur = await connect_to_db(self.DEBUG)
+        self.db_conn, self.cur = await connect_to_db()
         if not self.db_conn:
             self.log.error('Failed to connect to DB')
             return
@@ -65,7 +66,7 @@ class CameraRecord(BaseRecordHandling):
     @classmethod
     async def save(self):
         self.log.info('Connection to DB')
-        self.db_conn, self.cur = await connect_to_db(self.DEBUG)
+        self.db_conn, self.cur = await connect_to_db()
         if not self.db_conn:
             self.log.error('Failed to connect to DB')
             return
@@ -127,7 +128,7 @@ class UserRecord(BaseRecordHandling):
 
     @classmethod
     async def save(self, request):
-        self.db_conn, self.cur = await connect_to_db(self.DEBUG)
+        self.db_conn, self.cur = await connect_to_db()
         if not self.db_conn:
             self.log.error('Failed to connect to DB')
             return
@@ -155,7 +156,7 @@ class ActiveCameras(BaseRecordHandling):
     @classmethod
     async def get_active_camera_list(self):
         self.log.debug('connecting to db')
-        self.db_conn, self.cur = await connect_to_db(self.DEBUG)
+        self.db_conn, self.cur = await connect_to_db()
         if not self.db_conn:
             self.log.error('Failed to connect to DB')
             return []
@@ -170,16 +171,12 @@ class ActiveCameras(BaseRecordHandling):
         return active_cameras
 
 
-async def connect_to_db(DEBUG):
-    if DEBUG:
-        dbname = 'test_dj_test'
-    else:
-        dbname = os.environ.get('POSTGRES_DB', 'dj_test')
-
-    db_user = os.environ.get('POSTGRES_USER', 'test_dj')
-    db_password = os.environ.get('POSTGRES_PASSWORD', '123')
-    db_host = os.environ.get('POSTGRES_HOST', 'localhost')
-    db_port = os.environ.get('POSTGRES_PORT', '5432')
+async def connect_to_db():
+    dbname = DB_NAME
+    db_user = DB_USER
+    db_password = DB_PASSWORD
+    db_host = DB_HOST
+    db_port = DB_PORT
     logging.debug('CONNECTION TO DB:%s', dbname)
     try:
         db_conn = await psycopg.AsyncConnection.connect(

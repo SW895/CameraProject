@@ -5,8 +5,7 @@ from ..handlers import (SignalHandler,
                         VideoStreamResponseHandler,
                         VideoRequestHandler,
                         VideoResponseHandler,
-                        AproveUserRequestHandler,
-                        AproveUserResponseHandler)
+                        AproveUserRequestHandler)
 from ..camera_utils import ServerRequest
 from ..db import NewVideoRecord, CameraRecord
 
@@ -370,44 +369,4 @@ async def test_aprove_user_request_handler_request(
         .signal_queue \
         .put \
         .assert_called_with(aprove_request)
-    assert result is True
-
-
-# -----------------------------------------------
-# ------------ Aprove User response -------------
-# -----------------------------------------------
-
-@pytest.fixture
-def aprove_response(mocker):
-    request = ServerRequest(request_type='aprove_user_response',
-                            username='test_user')
-    request.writer = mocker.AsyncMock()
-    return request
-
-
-@pytest.fixture
-def aprove_user_response_handler(mocker):
-    handler = AproveUserResponseHandler
-    handler.record_handler = mocker.AsyncMock()
-    return handler
-
-
-@pytest.mark.asyncio
-async def test_aprove_user_response_handler_wrong_request(
-    wrong_request,
-    aprove_user_response_handler
-):
-    result = await aprove_user_response_handler.handle(wrong_request)
-    assert result is None
-
-
-@pytest.mark.asyncio
-async def test_aprove_user_response_handler_request(
-    aprove_response,
-    aprove_user_response_handler
-):
-    result = await aprove_user_response_handler.handle(aprove_response)
-    aprove_user_response_handler.record_handler \
-        .save \
-        .assert_awaited_with(aprove_response)
     assert result is True

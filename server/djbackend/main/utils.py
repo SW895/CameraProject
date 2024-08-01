@@ -85,7 +85,7 @@ class VideoStreamSource:
         self.stream_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.stream_socket.settimeout(5.0)
         try:
-            self.stream_socket.connect((os.environ.get('INTERNAL_HOST', '127.0.0.1'), 
+            self.stream_socket.connect((os.environ.get('INTERNAL_HOST', '127.0.0.1'),
                                         int(os.environ.get('INTERNAL_PORT', 20900))))
         except:
             self.thread_dead()

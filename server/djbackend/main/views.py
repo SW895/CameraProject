@@ -2,6 +2,7 @@ import os
 import socket
 import json
 import pytz
+import logging
 from django.utils.timezone import localtime
 from datetime import timedelta, datetime
 from django.shortcuts import render
@@ -20,7 +21,8 @@ def main_view(request):
         'main/main_page.html',
     )
 
-#@login_required
+
+@login_required
 def stream_view(request):
     camera_list = Camera.objects.filter(is_active=True)
     simplified_camera_list = []
@@ -30,13 +32,14 @@ def stream_view(request):
         request,
         'main/stream_page.html',
         context={
-            'camera_list':camera_list,
+            'camera_list': camera_list,
             'cam_list': json.dumps(simplified_camera_list),
-        }        
+        }
     )
 
+
 @login_required
-def archive_view(request):    
+def archive_view(request):
     cameras = Camera.objects.all()
     videos = ArchiveVideo.objects.all()
     params = {}
@@ -44,7 +47,8 @@ def archive_view(request):
     page_number = 1
     for field in ArchiveVideo._meta.get_fields():
         if field.name.find('_det') > 0:
-            det_fields.append((field.name, field.name.removesuffix('_det').title()))
+            det_fields.append((field.name,
+                               field.name.removesuffix('_det').title()))
 
     if request.GET:
         params = request.GET.dict()
@@ -53,41 +57,42 @@ def archive_view(request):
             videos = ArchiveVideo.objects.filter(date_created__date=date)
             del params['date_created']
         if 'page' in params.keys():
-            page_number = request.GET.get("page")            
+            page_number = request.GET.get("page")
             del params['page']
         if params:
             videos = videos.filter(**params)
 
     paginator = Paginator(videos, 10)
-    page_obj = paginator.get_page(page_number)  
+    page_obj = paginator.get_page(page_number)
     return render(
         request,
         'main/archive_page.html',
         context={
             'params': params,
             'cameras': cameras,
-            'det_fields':det_fields,
+            'det_fields': det_fields,
             'full_url': str(request.get_full_path()),
             'page_obj': page_obj,
-            'current_page':page_number,
+            'current_page': page_number,
         }
     )
 
-import logging
+
 class VideoDetailView(LoginRequiredMixin, generic.DetailView):
     model = ArchiveVideo
     template_name = 'main/archivevideo_detail.html'
 
-    def get_context_data(self, **kwargs):        
+    def get_context_data(self, **kwargs):
         timezone = pytz.timezone('Europe/Moscow')
         timeout = int(os.environ.get('CACHE_TIMEOUT', '60'))
         context = super(VideoDetailView, self).get_context_data(**kwargs)
-        video = ArchiveVideo.objects.get(pk=self.kwargs['pk'])        
-        #video_name = localtime(video.date_created)
-        logging.critical('%s',video.date_created)
+        video = ArchiveVideo.objects.get(pk=self.kwargs['pk'])
+    #   video_name = localtime(video.date_created)
+        logging.critical('%s', video.date_created)
         video_name = localtime(video.date_created).strftime("%d_%m_%YT%H_%M_%S")
-        logging.critical('%s',video_name)
-        request = {'request_type':'video_request', 'video_name':(video_name + '|' + video.camera.camera_name)}
+        logging.critical('%s', video_name)
+        request = {'request_type': 'video_request',
+                   'video_name': (video_name + '|' + video.camera.camera_name)}
         if cache.get(video_name):
             context['video_name'] = video_name
             update_cache(video_name, timeout)
@@ -97,8 +102,7 @@ class VideoDetailView(LoginRequiredMixin, generic.DetailView):
                 context['video_name'] = video_name
                 cache.add(video_name, True, timeout=timeout)
                 record = CachedVideo(name=video_name,
-                                     date_expire=datetime.now(tz=timezone) 
-                                                + timedelta(seconds=timeout))
+                                     date_expire=datetime.now(tz=timezone) + timedelta(seconds=timeout))
                 record.save()
             else:
                 context['video_name'] = None

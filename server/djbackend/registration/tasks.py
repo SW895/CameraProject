@@ -9,8 +9,8 @@ import logging
 @app.task
 def aprove_user(user):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    msg = {'request_type':'aprove_user_request', 
-               'username':user.username, 
+    msg = {'request_type':'aprove_user_request',
+               'username':user.username,
                'email':user.email}
     try:
         sock.connect((os.environ.get('INTERNAL_HOST', '127.0.0.1'),
