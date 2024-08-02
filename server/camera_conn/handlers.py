@@ -53,34 +53,28 @@ class NewRecordHandler(BaseHandler):
 
     @classmethod
     async def handle(self, request):
-        if request.request_type != 'new_record' or \
-           request.request_type != 'aprove_user_response':
+        if request.request_type == 'new_video_record':
+            self.log.debug('New video record method')
+            self.set_method(NewVideoRecord(request))
+        elif request.request_type == 'new_camera_record':
+            self.log.debug('Camera record method')
+            self.set_method(CameraRecord(request))
+        elif request.request_type == 'aprove_user_response':
+            self.log.debug('User record method')
+            self.set_method(UserRecord(request))
+        else:
             return
 
-        if request.db_record:
-            self.log.debug('New video record method')
-            self.set_method(NewVideoRecord)
-        elif request.camera_name:
-            self.log.debug('Camera record method')
-            self.set_method(CameraRecord)
-        elif request.username:
-            self.log.debug('User record method')
-            self.set_method(UserRecord)
-
-        self.log.debug('Handler started')
         result = b""
         data = b""
         self.log.info('Receiving new records')
-        while True:
+        while len(result) < request.record_size:
             data = await request.reader.read(self.buff_size)
             result += data
             if data == b"":
                 break
 
         self.log.info('New records received')
-        request.writer.close()
-        await request.writer.wait_closed()
-
         records = result.decode().split('\n')
         for record in records:
             if record != "":
@@ -161,8 +155,7 @@ class VideoResponseHandler(BaseHandler):
             builder = RequestBuilder().with_args(
                         request_type='video_reponse',
                         request_result='failure',
-                        video_name=request.video_name,
-                        client_id='main')
+                        video_name=request.video_name)
             response = builder.build()
             await self.manager.responses.put(response)
             self.log.error('No such video')
@@ -184,8 +177,7 @@ class VideoResponseHandler(BaseHandler):
             builder = RequestBuilder().with_args(
                         request_type='video_reponse',
                         request_result='failure',
-                        video_name=request.video_name,
-                        client_id='main')
+                        video_name=request.video_name)
             response = builder.build()
             await self.manager.responses.put(response)
             self.log.warning('Failed to receive video file')
@@ -204,8 +196,7 @@ class VideoResponseHandler(BaseHandler):
         builder = RequestBuilder().with_args(
                         request_type='video_reponse',
                         request_result='success',
-                        video_name=request.video_name,
-                        client_id='main')
+                        video_name=request.video_name)
         response = builder.build()
         await self.manager.responses.put(response)
         self.log.info('File received')

@@ -101,8 +101,7 @@ class VideoStreamManager(BaseManager, metaclass=SingletonMeta):
             self.log.debug('Sending stream request')
             builder = RequestBuilder().with_args(
                         request_type='stream',
-                        camera_name=channel.camera_name,
-                        client_id='main')
+                        camera_name=channel.camera_name)
             request = builder.build()
             await self.send_request(request)
             self.log.debug('START COURUTINE')
@@ -229,8 +228,7 @@ class VideoRequestManager(BaseManager, metaclass=SingletonMeta):
         self.loop.create_task(current_request.process_request())
         self.log.debug('Created video request')
         builder = RequestBuilder().with_args(request_type='video',
-                                             video_name=video_name,
-                                             client_id='main')
+                                             video_name=video_name)
         request = builder.build()
         await self.send_request(request)
         return current_request
@@ -391,6 +389,6 @@ class Client:
         self.signal_queue.task_done()
         self.log.info('Get signal:%s', signal.request_type)
         self.log.info('Sending signal')
-        message = signal.serialize() + '\n'
+        message = signal.serialize()
         self.client.writer.write(message.encode())
         await self.client.writer.drain()

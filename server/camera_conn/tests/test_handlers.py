@@ -6,7 +6,7 @@ from ..handlers import (SignalHandler,
                         VideoRequestHandler,
                         VideoResponseHandler,
                         AproveUserRequestHandler)
-from ..camera_utils import ServerRequest
+from ..cam_server import RequestBuilder
 from ..db import NewVideoRecord, CameraRecord
 
 pytest_plugins = ('pytest_asyncio', )
@@ -14,7 +14,8 @@ pytest_plugins = ('pytest_asyncio', )
 
 @pytest.fixture
 def wrong_request():
-    return ServerRequest(request_type='wrong_request')
+    builder = RequestBuilder().with_args(request_type='wrong_request')
+    return builder.build()
 
 
 # -----------------------------------------------
@@ -23,14 +24,16 @@ def wrong_request():
 
 @pytest.fixture
 def signal_request(mocker):
-    request = ServerRequest(request_type='signal')
-    request.writer = mocker.AsyncMock()
-    return request
+    writer = mocker.AsyncMock()
+    builder = RequestBuilder().with_args(request_type='signal',
+                                         writer=writer)
+    return builder.build()
 
 
 @pytest.fixture
 def test_signal():
-    return ServerRequest(request_type='test_signal')
+    builder = RequestBuilder().with_args(request_type='test_signal')
+    return builder.build()
 
 
 @pytest.mark.asyncio
@@ -67,27 +70,30 @@ async def test_process_signal(signal_request, test_signal):
 
 @pytest.fixture
 def new_record_request():
-    return ServerRequest(request_type='new_record')
+    builder = RequestBuilder().with_args(request_type='new_record')
+    return builder.build()
 
 
 @pytest.fixture
 def new_video_record_request(mocker):
-    request = ServerRequest(request_type='new_record',
-                            db_record='test_record')
-    request.writer = mocker.AsyncMock()
-    request.reader = mocker.AsyncMock()
-    request.reader.read.return_value = b""
-    return request
+    writer = mocker.AsyncMock()
+    reader = mocker.AsyncMock()
+    reader.read.return_value = b""
+    builder = RequestBuilder().with_args(request_type='new_video_record',
+                                         writer=writer,
+                                         reader=reader)
+    return builder.build()
 
 
 @pytest.fixture
 def new_camera_record(mocker):
-    request = ServerRequest(request_type='new_record',
-                            camera_name='test_camera')
-    request.writer = mocker.AsyncMock()
-    request.reader = mocker.AsyncMock()
-    request.reader.read.return_value = b""
-    return request
+    writer = mocker.AsyncMock()
+    reader = mocker.AsyncMock()
+    reader.read.return_value = b""
+    builder = RequestBuilder().with_args(request_type='new_camera_record',
+                                         writer=writer,
+                                         reader=reader)
+    return builder.build()
 
 
 @pytest.fixture
@@ -151,7 +157,8 @@ async def test_save_called(new_camera_record, mocker):
 
 @pytest.fixture
 def video_stream_request():
-    return ServerRequest(request_type='stream_request')
+    builder = RequestBuilder().with_args(request_type='stream_request')
+    return builder.build()
 
 
 @pytest.fixture
@@ -189,7 +196,8 @@ async def test_video_stream_request_handler_request(
 
 @pytest.fixture
 def video_stream_response():
-    return ServerRequest(request_type='stream_response')
+    builder = RequestBuilder().with_args(request_type='stream_response')
+    return builder.build()
 
 
 @pytest.fixture
@@ -227,7 +235,8 @@ async def test_video_stream_response_handler_request(
 
 @pytest.fixture
 def video_request():
-    return ServerRequest(request_type='video_request')
+    builder = RequestBuilder().with_args(request_type='video_request')
+    return builder.build()
 
 
 @pytest.fixture
@@ -261,12 +270,14 @@ async def test_video_request_handler_request(video_request,
 
 @pytest.fixture
 def video_response(mocker):
-    request = ServerRequest(request_type='video_response',
-                            video_name='test_video',
-                            video_size=65000)
-    request.reader = mocker.AsyncMock()
-    request.writer = mocker.AsyncMock()
-    return request
+    reader = mocker.AsyncMock()
+    writer = mocker.AsyncMock()
+    builder = RequestBuilder().with_args(request_type='video_response',
+                                         video_name='test_video',
+                                         video_size=65000,
+                                         reader=reader,
+                                         writer=writer)
+    return builder.build()
 
 
 @pytest.fixture
@@ -289,9 +300,10 @@ async def test_video_file_zero_size(video_response,
                                     video_response_handler):
     video_response.video_size = 0
     result = await video_response_handler.handle(video_response)
-    expected_call = ServerRequest(request_type='video_reponse',
-                                  request_result='failure',
-                                  video_name=video_response.video_name)
+    builder = RequestBuilder().with_args(request_type='video_reponse',
+                                         request_result='failure',
+                                         video_name=video_response.video_name)
+    expected_call = builder.build()
     video_response_handler.manager \
         .responses \
         .put \
@@ -305,9 +317,10 @@ async def test_fail_to_receive_video(video_response,
     video_response.video_size = 65000
     video_response.reader.read.return_value = b""
     result = await video_response_handler.handle(video_response)
-    expected_call = ServerRequest(request_type='video_reponse',
-                                  request_result='failure',
-                                  video_name=video_response.video_name)
+    builder = RequestBuilder().with_args(request_type='video_reponse',
+                                         request_result='failure',
+                                         video_name=video_response.video_name)
+    expected_call = builder.build()
     video_response_handler.manager \
         .responses \
         .put \
@@ -322,9 +335,10 @@ async def test_successfully_receive_video(video_response,
     video_response.reader.read.return_value = bytes(video_response.video_size)
 
     result = await video_response_handler.handle(video_response)
-    expected_call = ServerRequest(request_type='video_reponse',
-                                  request_result='success',
-                                  video_name=video_response.video_name)
+    builder = RequestBuilder().with_args(request_type='video_reponse',
+                                         request_result='success',
+                                         video_name=video_response.video_name)
+    expected_call = builder.build()
     video_response_handler.manager \
         .responses \
         .put \

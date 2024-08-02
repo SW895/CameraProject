@@ -28,10 +28,8 @@ class Server:
 
     async def router(self, reader, writer):
         data = await reader.read(self.buff_size)
-        # client_id set for testing purpose
         builder = RequestBuilder().with_args(writer=writer,
-                                             reader=reader,
-                                             client_id='main') \
+                                             reader=reader) \
                                   .with_bytes(data)
         request = builder.build()
         self.log.info('Request type accepted. Sending reply')
@@ -61,6 +59,7 @@ class ServerRequest:
     reader = None
 
     def add(self, **kwargs):
+        self.client_id = 'main'  # for testing
         self.__dict__.update(kwargs)
 
     def __str__(self):
@@ -70,11 +69,11 @@ class ServerRequest:
         pass
 
     def serialize(self):
-        result = self.__dict__.copy()
-        del result['writer']
-        del result['reader']
-
-        return json.dumps(result)
+        fields = self.__dict__.copy()
+        del fields['writer']
+        del fields['reader']
+        serialized = json.dumps(fields) + '\n'
+        return serialized
 
 
 class RequestBuilder:
