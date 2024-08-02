@@ -1,11 +1,11 @@
 import pytest
-from ..managers import (VideoRequestManager,
-                        VideoStreamManager,
-                        VideoRequest,
-                        StreamChannel)
-from ..camera_utils import (ServerRequest,
-                            ErrorAfter,
-                            CallableExhausted)
+from camera_conn.cam_server import RequestBuilder
+from camera_conn.managers import (VideoRequestManager,
+                                  VideoStreamManager,
+                                  VideoRequest,
+                                  StreamChannel)
+from camera_conn.camera_utils import (ErrorAfter,
+                                      CallableExhausted)
 
 
 # -----------------------------------------------
@@ -22,7 +22,7 @@ def videostream_manager(mocker, stream_requester, stream_response):
     manager.loop = mocker.AsyncMock()
     manager.get_active_camera_list = mocker.AsyncMock()
     manager.get_active_camera_list \
-        .return_value = [['test_camera', 'test_user']]
+        .return_value = [('test_camera', 'test_user')]
     manager.requesters.get.side_effect = ErrorAfter(
                                             limit=1,
                                             return_value=stream_requester)
@@ -34,35 +34,37 @@ def videostream_manager(mocker, stream_requester, stream_response):
 
 @pytest.fixture
 def stream_requester(mocker):
-    request = ServerRequest(request_type='stream_request',
-                            camera_name='test_camera')
-    request.writer = mocker.AsyncMock()
-    request.reader = mocker.AsyncMock()
-    return request
+    writer = mocker.AsyncMock()
+    reader = mocker.AsyncMock()
+    builder = RequestBuilder().with_args(request_type='stream_request',
+                                         camera_name='test_camera',
+                                         reader=reader,
+                                         writer=writer)
+    return builder.build()
 
 
 @pytest.fixture
 def stream_response(mocker):
-    request = ServerRequest(request_type='stream_response',
-                            camera_name='test_camera')
-    request.writer = mocker.AsyncMock()
-    request.reader = mocker.AsyncMock()
-    request.reader.read.side_effect = ErrorAfter(
-                                                limit=1,
-                                                return_value=b'111')
-    return request
+    writer = mocker.AsyncMock()
+    reader = mocker.AsyncMock()
+    reader.read.side_effect = ErrorAfter(limit=1,
+                                         return_value=b'111')
+    builder = RequestBuilder().with_args(request_type='stream_response',
+                                         camera_name='test_camera',
+                                         reader=reader,
+                                         writer=writer)
+    return builder.build()
 
 
 @pytest.fixture
 def stream_channel():
     channel = StreamChannel('test_camera')
-    channel.source_timeout = 0.5
+    channel.source_timeout = 0.05
     return channel
 
 
 @pytest.mark.asyncio
-async def test_get_requester_with_key_error(videostream_manager,
-                                            mocker):
+async def test_get_requester_with_key_error(videostream_manager):
     videostream_manager.stream_channels = {}
     with pytest.raises(CallableExhausted):
         await videostream_manager.process_requesters()
@@ -70,8 +72,7 @@ async def test_get_requester_with_key_error(videostream_manager,
 
 
 @pytest.mark.asyncio
-async def test_get_requester_without_error(videostream_manager,
-                                           mocker):
+async def test_get_requester_without_error(videostream_manager):
     videostream_manager.stream_channels = {'test_camera': 'test'}
     with pytest.raises(CallableExhausted):
         await videostream_manager.process_requesters()
@@ -91,9 +92,9 @@ async def test_get_response_with_key_error(videostream_manager):
 @pytest.mark.asyncio
 async def test_get_response_without_error(videostream_manager,
                                           stream_response,
+                                          stream_channel,
                                           mocker):
-    videostream_manager.stream_channels = {'test_camera':
-                                           StreamChannel('test_camera')}
+    videostream_manager.stream_channels = {'test_camera': stream_channel}
     videostream_manager.stream_channels['test_camera']\
         .source_queue = mocker.AsyncMock()
     with pytest.raises(CallableExhausted):
@@ -153,17 +154,18 @@ async def test_timeout_exit_if_no_source(stream_channel):
     stream_channel.consumer_list = []
     stream_channel.source = None
     result = await stream_channel.run_channel()
-    assert result == 100
+    assert result == 'TimeoutError'
 
 
 @pytest.mark.asyncio
 async def test_proper_clean_up_with_no_source(stream_channel,
-                                              stream_requester, mocker):
+                                              stream_requester,
+                                              mocker):
     stream_channel.source_queue = mocker.AsyncMock()
     stream_channel.source_queue.get.side_effect = TimeoutError
     await stream_channel.add_consumer(stream_requester)
     result = await stream_channel.run_channel()
-    assert result == 100
+    assert result == 'TimeoutError'
     assert stream_channel.consumer_list == []
     assert stream_channel.task is None
     assert stream_channel.source is None
@@ -171,26 +173,22 @@ async def test_proper_clean_up_with_no_source(stream_channel,
 
 
 @pytest.mark.asyncio
-async def test_send_all_called(stream_channel,
-                               stream_requester,
-                               stream_response):
+async def test_data_sended_to_consumers(stream_channel,
+                                        stream_requester,
+                                        stream_response):
 
     await stream_channel.source_queue.put(stream_response)
     await stream_channel.add_consumer(stream_requester)
     result = await stream_channel.run_channel()
-    assert result == 200
+    assert result is True
     stream_requester.writer.write.assert_called()
 
 
 @pytest.mark.asyncio
-async def test_remove_consumer(stream_channel,
-                               stream_requester,
-                               stream_response):
-    stream_requester.writer.write.side_effect = ConnectionResetError
-    await stream_channel.source_queue.put(stream_response)
+async def test_remove_consumer(stream_channel, stream_requester, mocker):
+    stream_requester.writer.write = mocker.Mock(side_effect=BrokenPipeError)
     await stream_channel.add_consumer(stream_requester)
-    result = await stream_channel.run_channel()
-    assert result == 200
+    await stream_channel.send_to_all(b'100')
     assert stream_channel.consumer_list == []
 
 
@@ -227,30 +225,33 @@ def videorequest_manager(mocker, video_request, video_response):
 
 @pytest.fixture
 def video_request(mocker):
-    request = ServerRequest(request_type='video_request',
-                            video_name='test_video',
-                            )
-    request.writer = mocker.AsyncMock()
-    request.reader = mocker.AsyncMock()
-    return request
+    writer = mocker.AsyncMock()
+    reader = mocker.AsyncMock()
+    builder = RequestBuilder().with_args(request_type='video_request',
+                                         video_name='test_video',
+                                         reader=reader,
+                                         writer=writer)
+    return builder.build()
 
 
 @pytest.fixture
 def video_response(mocker):
-    response = ServerRequest(request_type='video_response',
-                             video_size=1000,
-                             video_name='test_video',
-                             request_result='failure')
-    response.writer = mocker.AsyncMock()
-    response.reader = mocker.AsyncMock()
-    return response
+    writer = mocker.AsyncMock()
+    reader = mocker.AsyncMock()
+    builder = RequestBuilder().with_args(request_type='video_response',
+                                         video_size=1000,
+                                         video_name='test_video',
+                                         request_result='failure',
+                                         reader=reader,
+                                         writer=writer)
+    return builder.build()
 
 
 @pytest.fixture
 def video_request_object(mocker, video_response):
     videorequest = VideoRequest(video_name='test_video')
     videorequest.response_queue = mocker.AsyncMock()
-    videorequest.response_queue.return_value = video_response
+    videorequest.response_queue.get.return_value = video_response
     return videorequest
 
 
@@ -272,6 +273,7 @@ async def test_add_requester_to_existing_video_request(videorequest_manager,
         await videorequest_manager.process_requesters()
     assert videorequest_manager.requested_videos[video_request.video_name] \
         .requesters[0] == video_request
+    videorequest_manager.send_request.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -338,8 +340,16 @@ async def test_send_response(video_request_object,
                              video_response):
     await video_request_object.add_requester(video_request)
     video_request_object.response_queue.get.side_effect = None
-    video_request_object.response_queue.get.return_value = video_response
     await video_request_object.process_request()
     response = video_response.request_result
     assert video_request_object.response == response
     video_request.writer.write.assert_called_with(response.encode())
+
+
+# -----------------------------------------------
+# ------------ Signal Collector -----------------
+# -----------------------------------------------
+
+# -----------------------------------------------
+# ------------ Client ---------------------------
+# -----------------------------------------------

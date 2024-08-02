@@ -141,7 +141,7 @@ class StreamChannel:
         except TimeoutError:
             self.log.debug('SOURCE TIMEOUT')
             await self.clean_up()
-            return 100
+            return 'TimeoutError'
 
         self.log.debug('Get stream source %s', self.source)
         self.source_queue.task_done()
@@ -160,7 +160,7 @@ class StreamChannel:
             self.log.debug('Courutine cancelled')
         finally:
             await self.clean_up()
-            return 200
+            return True
 
     async def send_to_all(self, data):
         for consumer in self.consumer_list:
@@ -169,8 +169,7 @@ class StreamChannel:
                 await consumer.writer.drain()
                 self.log.debug('DATA SENDED %s', len(data))
             except Exception as error:
-                self.log.debug('Connection to consumer lost: %s',
-                               error)
+                self.log.debug('Connection to consumer lost: %s', error)
                 self.consumer_list.remove(consumer)
 #               consumer.writer.close()
 #               await consumer.writer.wait_closed() ?????????????
