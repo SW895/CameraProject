@@ -2,12 +2,12 @@ import asyncio
 import psycopg
 import logging
 from psycopg import sql
-from cam_server import RequestBuilder
-from settings import (DB_HOST,
-                      DB_NAME,
-                      DB_PASSWORD,
-                      DB_PORT,
-                      DB_USER)
+from camera_conn.cam_server import RequestBuilder
+from camera_conn.settings import (DB_HOST,
+                                  DB_NAME,
+                                  DB_PASSWORD,
+                                  DB_PORT,
+                                  DB_USER)
 
 
 class BaseRecordHandling:

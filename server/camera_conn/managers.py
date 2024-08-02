@@ -1,11 +1,11 @@
 import asyncio
 import logging
-from camera_utils import SingletonMeta
-from cam_server import RequestBuilder
-from settings import (SOCKET_BUFF_SIZE,
-                      STREAM_SOURCE_TIMEOUT,
-                      VIDEO_REQUEST_TIMEOUT,
-                      GARB_COLLECTOR_TIMEOUT)
+from camera_conn.camera_utils import SingletonMeta
+from camera_conn.cam_server import RequestBuilder
+from camera_conn.settings import (SOCKET_BUFF_SIZE,
+                                  STREAM_SOURCE_TIMEOUT,
+                                  VIDEO_REQUEST_TIMEOUT,
+                                  GARB_COLLECTOR_TIMEOUT)
 
 
 class BaseManager:

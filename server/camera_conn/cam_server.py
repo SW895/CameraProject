@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import json
-from settings import SOCKET_BUFF_SIZE
+from camera_conn.settings import SOCKET_BUFF_SIZE
 
 
 class Server:
@@ -62,11 +62,19 @@ class ServerRequest:
         self.client_id = 'main'  # for testing
         self.__dict__.update(kwargs)
 
-    def __str__(self):
-        return str(self.__dict__)
+    def __eq__(self, other):
+        SameObject = isinstance(other, self.__class__)
+        if SameObject:
+            return True
+        if self.__dict__ == other.__dict__:
+            return True
+        return False
 
-    def __eq__(self):
-        pass
+    def __str__(self):
+        fields = self.__dict__.copy()
+        del fields['writer']
+        del fields['reader']
+        return str(fields)
 
     def serialize(self):
         fields = self.__dict__.copy()

@@ -1,13 +1,13 @@
 import pytest
-from ..handlers import (SignalHandler,
-                        NewRecordHandler,
-                        VideoStreamRequestHandler,
-                        VideoStreamResponseHandler,
-                        VideoRequestHandler,
-                        VideoResponseHandler,
-                        AproveUserRequestHandler)
-from ..cam_server import RequestBuilder
-from ..db import NewVideoRecord, CameraRecord
+from camera_conn.handlers import (SignalHandler,
+                                  NewRecordHandler,
+                                  VideoStreamRequestHandler,
+                                  VideoStreamResponseHandler,
+                                  VideoRequestHandler,
+                                  VideoResponseHandler,
+                                  AproveUserRequestHandler)
+from camera_conn.cam_server import RequestBuilder
+from camera_conn.db import NewVideoRecord, CameraRecord, UserRecord
 
 pytest_plugins = ('pytest_asyncio', )
 
@@ -36,52 +36,41 @@ def test_signal():
     return builder.build()
 
 
+@pytest.fixture
+def signal_handler(mocker):
+    handler = SignalHandler
+    handler.manager = mocker.AsyncMock()
+    return handler
+
+
 @pytest.mark.asyncio
-async def test_wrong_request_for_signal_handler(wrong_request):
-    result = await SignalHandler.handle(wrong_request)
+async def test_wrong_request_for_signal_handler(wrong_request,
+                                                signal_handler):
+    result = await signal_handler.handle(wrong_request)
     assert result is None
 
 
 @pytest.mark.asyncio
-async def test_proper_request_lost_connection(signal_request, mocker):
-    original = SignalHandler.process_signals
-    mock = mocker.AsyncMock(side_effect=ConnectionResetError)
-    SignalHandler.process_signals = mock
-    result = await SignalHandler.handle(signal_request)
+async def test_put_connection_to_signal_collector(signal_handler,
+                                                  signal_request):
+    result = await signal_handler.handle(signal_request)
     assert result is True
-    SignalHandler.process_signals = original
-
-
-@pytest.mark.asyncio
-async def test_process_signal(signal_request, test_signal):
-    signal_request.writer.write.side_effect = None
-    SignalHandler.connection = signal_request
-    await SignalHandler.signal_queue.put(test_signal)
-    await SignalHandler.process_signals()
-    excpected_result = (test_signal.serialize() + '\n').encode()
-    signal_request.writer.write.assert_called_once_with(excpected_result)
-    signal_request.writer.drain.assert_awaited_once()
+    signal_handler.manager.requesters.put.assert_called_with(signal_request)
 
 
 # -----------------------------------------------
 # ------------ New Record Handler ---------------
 # -----------------------------------------------
 
-
-@pytest.fixture
-def new_record_request():
-    builder = RequestBuilder().with_args(request_type='new_record')
-    return builder.build()
-
-
 @pytest.fixture
 def new_video_record_request(mocker):
     writer = mocker.AsyncMock()
     reader = mocker.AsyncMock()
-    reader.read.return_value = b""
+    reader.read.return_value = b"1"
     builder = RequestBuilder().with_args(request_type='new_video_record',
                                          writer=writer,
-                                         reader=reader)
+                                         reader=reader,
+                                         record_size=1)
     return builder.build()
 
 
@@ -89,16 +78,29 @@ def new_video_record_request(mocker):
 def new_camera_record(mocker):
     writer = mocker.AsyncMock()
     reader = mocker.AsyncMock()
-    reader.read.return_value = b""
+    reader.read.return_value = b"1"
     builder = RequestBuilder().with_args(request_type='new_camera_record',
                                          writer=writer,
-                                         reader=reader)
+                                         reader=reader,
+                                         record_size=1)
+    return builder.build()
+
+
+@pytest.fixture
+def aprove_user_response(mocker):
+    writer = mocker.AsyncMock()
+    reader = mocker.AsyncMock()
+    reader.read.return_value = b"1"
+    builder = RequestBuilder().with_args(request_type='aprove_user_response',
+                                         writer=writer,
+                                         reader=reader,
+                                         record_size=1)
     return builder.build()
 
 
 @pytest.fixture
 def new_record_handler(mocker):
-    handler = NewRecordHandler()
+    handler = NewRecordHandler
     handler.save = mocker.AsyncMock()
     return handler
 
@@ -113,16 +115,7 @@ async def test_wrong_request_for_new_record_handler(wrong_request):
 async def test_set_new_video_record_save_method(new_video_record_request,
                                                 new_record_handler):
     result = await new_record_handler.handle(new_video_record_request)
-    assert new_record_handler.record_handler is NewVideoRecord
-    assert result is True
-
-
-@pytest.mark.asyncio
-async def test_close_connection_for_video_record(new_video_record_request,
-                                                 new_record_handler):
-    result = await new_record_handler.handle(new_video_record_request)
-    new_video_record_request.reader.read.assert_called()
-    new_video_record_request.writer.close.assert_called()
+    assert type(new_record_handler.get_handler()) is NewVideoRecord
     assert result is True
 
 
@@ -130,25 +123,43 @@ async def test_close_connection_for_video_record(new_video_record_request,
 async def test_set_camera_record_save_mathod(new_camera_record,
                                              new_record_handler):
     result = await new_record_handler.handle(new_camera_record)
-    assert new_record_handler.record_handler is CameraRecord
+    assert type(new_record_handler.get_handler()) is CameraRecord
     assert result is True
 
 
 @pytest.mark.asyncio
-async def test_close_connection_for_camera_record(new_camera_record,
-                                                  new_record_handler):
+async def test_set_user_record_save_mathod(aprove_user_response,
+                                           new_record_handler):
+    result = await new_record_handler.handle(aprove_user_response)
+    assert type(new_record_handler.get_handler()) is UserRecord
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_read_data_from_connection(new_video_record_request,
+                                         new_record_handler):
+    result = await new_record_handler.handle(new_video_record_request)
+    new_video_record_request.reader.read.assert_called()
+    assert result is True
+
+
+@pytest.mark.asyncio
+async def test_save_called(new_camera_record, new_record_handler):
     result = await new_record_handler.handle(new_camera_record)
-    new_camera_record.reader.read.assert_called()
-    new_camera_record.writer.close.assert_called()
+    new_record_handler.save.assert_called()
     assert result is True
 
 
 @pytest.mark.asyncio
-async def test_save_called(new_camera_record, mocker):
-    NewRecordHandler.save = mocker.AsyncMock()
-    result = await NewRecordHandler.handle(new_camera_record)
-    NewRecordHandler.save.assert_called()
+async def test_queue_record_put(new_camera_record, new_record_handler):
+    result = await new_record_handler.handle(new_camera_record)
+    record = await new_record_handler.get_handler().save_queue.get()
     assert result is True
+    import json
+    assert record == json.loads(new_camera_record.reader
+                                                 .read
+                                                 .return_value
+                                                 .decode())
 
 
 # -----------------------------------------------
@@ -352,15 +363,16 @@ async def test_successfully_receive_video(video_response,
 
 @pytest.fixture
 def aprove_request(mocker):
-    request = ServerRequest(request_type='aprove_user_request')
-    request.writer = mocker.AsyncMock()
-    return request
+    writer = mocker.AsyncMock()
+    builder = RequestBuilder().with_args(request_type='aprove_user_request',
+                                         writer=writer)
+    return builder.build()
 
 
 @pytest.fixture
 def aprove_user_request_handler(mocker):
-    handler = AproveUserRequestHandler()
-    handler.signal.signal_queue = mocker.AsyncMock()
+    handler = AproveUserRequestHandler
+    handler.signal.responses = mocker.AsyncMock()
     return handler
 
 
@@ -380,7 +392,7 @@ async def test_aprove_user_request_handler_request(
 ):
     result = await aprove_user_request_handler.handle(aprove_request)
     aprove_user_request_handler.signal \
-        .signal_queue \
+        .responses \
         .put \
         .assert_called_with(aprove_request)
     assert result is True

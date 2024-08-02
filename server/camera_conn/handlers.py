@@ -2,14 +2,14 @@ import asyncio
 import logging
 import json
 import os
-from settings import SOCKET_BUFF_SIZE
-from db import (NewVideoRecord,
-                CameraRecord,
-                UserRecord)
-from cam_server import RequestBuilder
-from managers import (VideoStreamManager,
-                      VideoRequestManager,
-                      SignalCollector)
+from camera_conn.settings import SOCKET_BUFF_SIZE
+from camera_conn.db import (NewVideoRecord,
+                            CameraRecord,
+                            UserRecord)
+from camera_conn.cam_server import RequestBuilder
+from camera_conn.managers import (VideoStreamManager,
+                                  VideoRequestManager,
+                                  SignalCollector)
 
 
 class BaseHandler(object):
@@ -42,8 +42,8 @@ class NewRecordHandler(BaseHandler):
     def set_method(self, record_handler):
         self._record_handler = record_handler
 
-    @property
-    def record_handler(self):
+    @classmethod
+    def get_handler(self):
         return self._record_handler
 
     @classmethod
@@ -79,7 +79,7 @@ class NewRecordHandler(BaseHandler):
         for record in records:
             if record != "":
                 self.log.debug('RECORD:%s', record)
-                await self.record_handler.save_queue.put(json.loads(record))
+                await self.get_handler().save_queue.put(json.loads(record))
         self.save()
         return True
 
