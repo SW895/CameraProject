@@ -72,14 +72,20 @@ class ServerRequest:
 
     def __str__(self):
         fields = self.__dict__.copy()
-        del fields['writer']
-        del fields['reader']
+        try:
+            del fields['writer']
+            del fields['reader']
+        except KeyError:
+            pass
         return str(fields)
 
     def serialize(self):
         fields = self.__dict__.copy()
-        del fields['writer']
-        del fields['reader']
+        try:
+            del fields['writer']
+            del fields['reader']
+        except KeyError:
+            pass
         serialized = json.dumps(fields) + '\n'
         return serialized
 
