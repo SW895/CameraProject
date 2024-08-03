@@ -3,7 +3,9 @@ from camera_conn.cam_server import RequestBuilder
 from camera_conn.managers import (VideoRequestManager,
                                   VideoStreamManager,
                                   VideoRequest,
-                                  StreamChannel)
+                                  StreamChannel,
+                                  SignalCollector,
+                                  Client)
 from camera_conn.camera_utils import (ErrorAfter,
                                       CallableExhausted)
 
@@ -350,6 +352,165 @@ async def test_send_response(video_request_object,
 # ------------ Signal Collector -----------------
 # -----------------------------------------------
 
+@pytest.fixture
+def signal_collector(mocker, client_request, custom_signal):
+    manager = SignalCollector()
+    manager.loop = mocker.AsyncMock()
+    manager.requesters = mocker.AsyncMock()
+    manager.requesters.get.side_effect = ErrorAfter(
+                                            limit=1,
+                                            return_value=client_request)
+    manager.responses = mocker.AsyncMock()
+    manager.responses.get.side_effect = ErrorAfter(
+                                            limit=1,
+                                            return_value=custom_signal)
+    return manager
+
+
+@pytest.fixture
+def client_request(mocker):
+    writer = mocker.AsyncMock()
+    reader = mocker.AsyncMock()
+    builder = RequestBuilder().with_args(request_type='signal',
+                                         ident='new',
+                                         reader=reader,
+                                         writer=writer)
+    request = builder.build()
+    request.client_id = 'test_client'
+    return request
+
+
+@pytest.fixture
+def old_client(mocker):
+    writer = mocker.AsyncMock()
+    reader = mocker.AsyncMock()
+    builder = RequestBuilder().with_args(request_type='signal',
+                                         ident='old',
+                                         reader=reader,
+                                         writer=writer)
+    request = builder.build()
+    request.client_id = 'test_client'
+    return request
+
+
+@pytest.fixture
+def dead_client(mocker):
+    writer = mocker.AsyncMock()
+    reader = mocker.AsyncMock()
+    builder = RequestBuilder().with_args(request_type='signal',
+                                         ident='old',
+                                         reader=reader,
+                                         writer=writer)
+    request = builder.build()
+    request.client_id = 'dead_client'
+    return request
+
+
+@pytest.fixture
+def custom_signal():
+    builder = RequestBuilder().with_args(request_type='any')
+    signal = builder.build()
+    signal.client_id = 'test_client'
+    return signal
+
+
+@pytest.fixture
+def client(client_request, custom_signal, mocker):
+    client = Client(client_request)
+    client.signal_queue = mocker.AsyncMock()
+    client.signal_queue.get.return_value = custom_signal
+    return client
+
+
+@pytest.mark.asyncio
+async def test_create_new_client(signal_collector, client_request):
+    with pytest.raises(CallableExhausted):
+        await signal_collector.process_requesters()
+    assert signal_collector.clients[client_request.client_id]
+    assert signal_collector \
+        .clients[client_request.client_id] \
+        .client == client_request
+
+
+@pytest.mark.asyncio
+async def test_update_existing_client(signal_collector,
+                                      client_request,
+                                      old_client):
+    signal_collector \
+        .clients.update({old_client.client_id: Client(old_client)})
+    with pytest.raises(CallableExhausted):
+        await signal_collector.process_requesters()
+    assert signal_collector \
+        .clients[client_request.client_id] \
+        .client \
+        .ident == client_request.ident
+    assert signal_collector.clients[client_request.client_id]
+    assert signal_collector \
+        .clients[client_request.client_id] \
+        .client == client_request
+    signal_collector.loop.create_task.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_get_signal_for_non_existing_client(signal_collector):
+    with pytest.raises(CallableExhausted):
+        try:
+            await signal_collector.process_responses()
+        except KeyError:
+            pytest.fail('KeyError not handled')
+
+
+@pytest.mark.asyncio
+async def test_get_signal(signal_collector, client_request, custom_signal):
+    signal_collector \
+        .clients \
+        .update({client_request.client_id: Client(client_request)})
+    with pytest.raises(CallableExhausted):
+        await signal_collector.process_responses()
+    result = await signal_collector \
+        .clients[client_request.client_id] \
+        .signal_queue \
+        .get()
+    assert result == custom_signal
+
+
+@pytest.mark.asyncio
+async def test_remove_expired_clients(signal_collector,
+                                      client_request,
+                                      dead_client,
+                                      mocker):
+    import asyncio
+    asyncio.sleep = mocker.AsyncMock()
+    asyncio.sleep.side_effect = ErrorAfter(limit=1, return_value=None)
+    d_client = Client(dead_client)
+    d_client.dead = True
+    a_client = Client(client_request)
+    signal_collector.clients = {dead_client.client_id: d_client,
+                                client_request.client_id: a_client}
+    with pytest.raises(CallableExhausted):
+        await signal_collector.garb_collector()
+    assert signal_collector.clients[client_request.client_id]
+    assert len(signal_collector.clients.keys()) == 1
+
+
 # -----------------------------------------------
 # ------------ Client ---------------------------
 # -----------------------------------------------
+
+@pytest.mark.asyncio
+async def test_proper_request_lost_connection(client, mocker):
+    original = client.process_signals
+    client.process_signals = mocker.AsyncMock(side_effect=ConnectionResetError)
+    await client.handle_signals()
+    client.client.writer.close.assert_called()
+    client.process_signals = original
+
+
+@pytest.mark.asyncio
+async def test_process_signal(client, custom_signal):
+    client.client.writer.write.side_effect = None
+
+    await client.process_signals()
+    excpected_result = (custom_signal.serialize()).encode()
+    client.client.writer.write.assert_called_once_with(excpected_result)
+    client.client.writer.drain.assert_awaited_once()

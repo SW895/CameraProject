@@ -315,7 +315,7 @@ class SignalCollector(BaseManager, metaclass=SingletonMeta):
     clients = {}
     garb_collector_timeout = GARB_COLLECTOR_TIMEOUT
 
-    async def process_requesters(self):
+    async def process_requesters(self):  # register clients
         while True:
             try:
                 requester = await self.requesters.get()
@@ -325,15 +325,18 @@ class SignalCollector(BaseManager, metaclass=SingletonMeta):
             try:
                 current_client = self.clients[requester.client_id]
             except KeyError:
+                self.log.debug('Creating new client')
                 current_client = \
                     self.clients[requester.client_id] = Client(requester)
             else:
-                current_client.writer.close()
-                await current_client.writer.wait_closed()
-                current_client = requester
-            self.loop.create_task(current_client.handle_signals())
+                self.log.debug('Current client already exists. Updating..')
+                current_client.client.writer.close()
+                await current_client.client.writer.wait_closed()
+                self.clients[requester.client_id] = Client(requester)
+            self.loop.create_task(
+                self.clients[requester.client_id].handle_signals())
 
-    async def process_responses(self):
+    async def process_responses(self):  # get signals to transmit
         while True:
             try:
                 signal = await self.responses.get()
@@ -370,6 +373,14 @@ class Client:
         self.client = client
         self.log = logging.getLogger(client.client_id)
 
+    def __eq__(self, other):
+        SameObject = isinstance(other, self.__class__)
+        if SameObject:
+            return True
+        if self.client.client_id == other.client.client_id:
+            return True
+        return False
+
     async def handle_signals(self):
         while True:
             try:
@@ -381,7 +392,6 @@ class Client:
         self.client.writer.close()
         await self.client.writer.wait_closed()
 
-    @classmethod
     async def process_signals(self):
         self.log.info('Waiting for new signal')
         signal = await self.signal_queue.get()
