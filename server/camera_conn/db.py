@@ -2,12 +2,12 @@ import asyncio
 import psycopg
 import logging
 from psycopg import sql
-from camera_conn.cam_server import RequestBuilder
-from camera_conn.settings import (DB_HOST,
-                                  DB_NAME,
-                                  DB_PASSWORD,
-                                  DB_PORT,
-                                  DB_USER)
+from cam_server import RequestBuilder
+from settings import (DB_HOST,
+                      DB_NAME,
+                      DB_PASSWORD,
+                      DB_PORT,
+                      DB_USER)
 
 
 class BaseRecordHandler:
@@ -87,7 +87,7 @@ class CameraRecord(BaseRecordHandler):
         await self.get_db_connection()
         if self.db_conn:
             await self.set_all_cameras_to_inactive()
-            return await self.process_records()
+            await self.process_records()
         return 'Failed to connect to DB'
 
     async def save_record(self, record):
@@ -169,7 +169,8 @@ async def connect_to_db():
                                             password=db_password,
                                             host=db_host,
                                             port=db_port)
-    except Exception:
+    except Exception as error:
+        logging.error('FAILED TO CONNECT TO DB: %s', error)
         return None, None
     else:
         cur = db_conn.cursor()

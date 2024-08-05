@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import json
-from camera_conn.settings import SOCKET_BUFF_SIZE
+from settings import SOCKET_BUFF_SIZE
 
 
 class Server:
@@ -11,7 +11,7 @@ class Server:
 
     def __init__(self, sock):
         self.sock = sock
-        name = f'Server:{self.sock}'
+        name = f'Server:{self.sock.getsockname()}'
         self.log = logging.getLogger(name)
 
     def add_handler(self, *args):

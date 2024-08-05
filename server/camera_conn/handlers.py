@@ -2,14 +2,14 @@ import asyncio
 import logging
 import json
 import os
-from camera_conn.settings import SOCKET_BUFF_SIZE
-from camera_conn.db import (NewVideoRecord,
-                            CameraRecord,
-                            UserRecord)
-from camera_conn.cam_server import RequestBuilder
-from camera_conn.managers import (VideoStreamManager,
-                                  VideoRequestManager,
-                                  SignalCollector)
+from settings import SOCKET_BUFF_SIZE
+from db import (NewVideoRecord,
+                CameraRecord,
+                UserRecord)
+from cam_server import RequestBuilder
+from managers import (VideoStreamManager,
+                      VideoRequestManager,
+                      SignalCollector)
 
 
 class BaseHandler(object):
