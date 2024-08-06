@@ -4,7 +4,7 @@ import json
 from settings import SOCKET_BUFF_SIZE
 
 
-class Server:
+class AsyncServer:
 
     handlers = []
     buff_size = SOCKET_BUFF_SIZE

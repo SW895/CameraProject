@@ -3,7 +3,7 @@ import logging
 
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.CRITICAL,
     format="%(name)s | %(levelname)s | %(asctime)s | %(message)s",
     datefmt="%Y-%m-%dT%H:%M:%S",)
 

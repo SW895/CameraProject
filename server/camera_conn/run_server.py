@@ -1,6 +1,6 @@
 import asyncio
 import socket
-from cam_server import Server
+from cam_server import AsyncServer
 from settings import (EXTERNAL_HOST,
                       EXTERNAL_PORT,
                       EXTERNAL_CONN_QUEUE,
@@ -18,44 +18,69 @@ from handlers import (VideoStreamRequestHandler,
                       VideoRequestHandler,
                       VideoResponseHandler,
                       AproveUserRequestHandler)
+import logging
+import time
 
+class Server:
 
-async def main():
-    external_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    external_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    external_sock.bind((EXTERNAL_HOST, EXTERNAL_PORT))
-    external_sock.listen(EXTERNAL_CONN_QUEUE)
+    def __init__(self):
+        self.external_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.external_sock.setsockopt(socket.SOL_SOCKET,
+                                      socket.SO_REUSEADDR,
+                                      1)
+        self.external_sock.bind((EXTERNAL_HOST, EXTERNAL_PORT))
+        self.external_sock.listen(EXTERNAL_CONN_QUEUE)
 
-    internal_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    internal_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    internal_sock.bind((INTERNAL_HOST, INTERNAL_PORT))
-    internal_sock.listen(INTERNAL_CONN_QUEUE)
+        self.internal_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.internal_sock.setsockopt(socket.SOL_SOCKET,
+                                      socket.SO_REUSEADDR,
+                                      1)
+        self.internal_sock.bind((INTERNAL_HOST, INTERNAL_PORT))
+        self.internal_sock.listen(INTERNAL_CONN_QUEUE)
 
-    internal_server = Server(internal_sock)
-    external_server = Server(external_sock)
-    internal_server.add_handler(VideoStreamRequestHandler,
-                                VideoRequestHandler,
-                                AproveUserRequestHandler)
-    external_server.add_handler(VideoStreamResponseHandler,
-                                VideoResponseHandler,
-                                SignalHandler,
-                                NewRecordHandler)
-    signal_collector = SignalCollector()
-    stream_manager = VideoStreamManager()
-    stream_manager.set_signal_handler(signal_collector)
-    stream_manager.set_camera_list_updater(ActiveCameras)
-    video_manager = VideoRequestManager()
-    video_manager.set_signal_handler(signal_collector)
+        self.internal_server = AsyncServer(self.internal_sock)
+        self.external_server = AsyncServer(self.external_sock)
+        self.internal_server.add_handler(VideoStreamRequestHandler,
+                                         VideoRequestHandler,
+                                         AproveUserRequestHandler)
+        self.external_server.add_handler(VideoStreamResponseHandler,
+                                         VideoResponseHandler,
+                                         SignalHandler,
+                                         NewRecordHandler)
+        self.signal_collector = SignalCollector()
+        self.stream_manager = VideoStreamManager()
+        self.stream_manager.set_signal_handler(self.signal_collector)
+        self.stream_manager.set_camera_list_updater(ActiveCameras)
+        self.video_manager = VideoRequestManager()
+        self.video_manager.set_signal_handler(self.signal_collector)
 
-    loop = asyncio.get_running_loop()
-    loop.create_task(signal_collector.run_manager())
-    loop.create_task(stream_manager.run_manager())
-    loop.create_task(video_manager.run_manager())
-    loop.create_task(internal_server.run_server())
-    loop.create_task(external_server.run_server())
+    def run(self):
+        self.loop = asyncio.new_event_loop()
+        # self.loop.add_signal_handler(*sig, handler, *args)
+        # write signal_handler
+        self.loop.create_task(self.signal_collector.run_manager())
+        self.loop.create_task(self.stream_manager.run_manager())
+        self.loop.create_task(self.video_manager.run_manager())
+        self.loop.create_task(self.internal_server.run_server())
+        self.loop.create_task(self.external_server.run_server())
+        self.loop.run_forever()
+
+    def shutdown(self):
+        if self.loop.is_running():
+            self.loop.call_soon_threadsafe(self.loop.stop())
+            while self.loop.is_running():
+                time.sleep(0.1)
+        tasks = asyncio.all_tasks(loop=self.loop)
+        for task in tasks:
+            task.cancel()
+        group = asyncio.gather(*tasks, return_exceptions=True)
+        self.loop.run_until_complete(group)
+        self.loop.close()
 
 
 if __name__ == '__main__':
-    loop = asyncio.get_event_loop()
-    loop.create_task(main())
-    loop.run_forever()
+    server = Server()
+    try:
+        server.run()
+    except KeyboardInterrupt:
+        server.shutdown()

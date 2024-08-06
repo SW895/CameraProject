@@ -41,7 +41,6 @@ class BaseConnection:
         raise NotImplementedError
 
     async def get_connection(self, request):
-        #loop = asyncio.get_running_loop()
         reader, writer = await asyncio.open_connection(
                         self.host, self.port)
 
@@ -66,14 +65,18 @@ class SignalConnection(BaseConnection):
 
     async def run(self):
         reader, writer = await self.get_connection(self.request)
-        while True:
+        try:
             data = await reader.read(self.buff_size)
-            builder = RequestBuilder().with_bytes(data)
-            request = builder.build()
-            for handler in self.handlers:
-                result = await handler.run(request)
-                if result:
-                    break
+        except asyncio.CancelledError:
+            return
+        builder = RequestBuilder().with_bytes(data)
+        request = builder.build()
+        for handler in self.handlers:
+            result = await handler.run(request)
+            if result:
+                break
+        writer.close()
+        await writer.wait_closed()
 
 
 class RegisterCameras(BaseConnection):
@@ -96,6 +99,8 @@ class RegisterCameras(BaseConnection):
         writer.write(self.record.encode())
         await writer.drain()
         reply = await reader.read(self.buff_size)
+        writer.close()
+        await writer.wait_closed()
         return reply.decode()
 
 

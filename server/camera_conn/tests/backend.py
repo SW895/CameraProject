@@ -6,7 +6,7 @@ sys.path.insert(1, str(base_dir))
 from cam_server import RequestBuilder
 from settings import (INTERNAL_HOST,
                       INTERNAL_PORT,
-                      SOCKET_BUFF_SIZE)
+                      SOCKET_BUFF_SIZE,)
 
 
 class BaseBackendRequest:
@@ -19,7 +19,6 @@ class BaseBackendRequest:
         raise NotImplementedError
 
     async def get_connection(self, request):
-        # loop = asyncio.get_running_loop()
         reader, writer = await asyncio.open_connection(
                         self.host, self.port)
 
