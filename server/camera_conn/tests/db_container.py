@@ -1,14 +1,20 @@
 import docker
 
 env = {
-    'POSTGRES_DB': 'hello_django_prod',
-    'POSTGRES_USER': 'hello_django',
-    'POSTGRES_PASSWORD': 'hello_django',
-    'POSTGRES_HOST': 'db',
-    'POSTGRES_PORT': '5432',
+    'POSTGRES_DB': 'test_base',
+    'POSTGRES_USER': 'test_user',
+    'POSTGRES_PASSWORD': 'test_password',
+    'POSTGRES_HOST': 'test',
+    'POSTGRES_PORT': '10000',
     }
 
-client = docker.from_env()
-client.containers.run('postgres:15', environment=env)
-#client.containers.run('alpine', 'echo hello world')
 
+def main():
+    client = docker.from_env()
+    container = client.containers.run('postgres:15',
+                                      environment=env,
+                                      name='test_db',
+                                      ports={'5432/tcp': 10000})
+    return container
+
+cont = main()

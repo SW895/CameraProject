@@ -175,3 +175,46 @@ async def connect_to_db():
     else:
         cur = db_conn.cursor()
         return db_conn, cur
+
+
+async def connect_to_db22():
+    dbname = 'test_base'
+    db_user = 'test_user'
+    db_password = 'test_password'
+    db_host = '0.0.0.0'
+    db_port = '10000'
+    logging.debug('CONNECTION TO DB:%s', dbname)
+    try:
+        db_conn = await psycopg.AsyncConnection.connect(
+                                            dbname=dbname,
+                                            user=db_user,
+                                            password=db_password,
+                                            host=db_host,
+                                            port=db_port)
+    except Exception as error:
+        logging.error('FAILED TO CONNECT TO DB: %s', error)
+        return None, None
+    else:
+        cur = db_conn.cursor()
+        return db_conn, cur
+
+
+
+async def main():
+    db_conn, cur = await connect_to_db22()
+    if db_conn:
+        print('AAAAAAAAAAAAAAA')
+    else:
+        print('DDDDD')
+
+import docker
+
+client = docker.from_env()
+cont = client.containers.list()
+
+logging.critical('%s', cont)
+logging.critical('Stopping container')
+cont[0].stop()
+#loop = asyncio.new_event_loop()
+#task = loop.create_task(main())
+#loop.run_until_complete(task)
