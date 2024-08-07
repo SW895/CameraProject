@@ -21,9 +21,11 @@ from handlers import (VideoStreamRequestHandler,
 import logging
 import time
 
+
 class Server:
 
     def __init__(self):
+        self.log = logging.getLogger('MAIN SERVER')
         self.external_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.external_sock.setsockopt(socket.SOL_SOCKET,
                                       socket.SO_REUSEADDR,
@@ -54,20 +56,21 @@ class Server:
         self.video_manager = VideoRequestManager()
         self.video_manager.set_signal_handler(self.signal_collector)
 
-    def run(self):
+    def prepare_loop(self):
         self.loop = asyncio.new_event_loop()
-        # self.loop.add_signal_handler(*sig, handler, *args)
-        # write signal_handler
         self.loop.create_task(self.signal_collector.run_manager())
         self.loop.create_task(self.stream_manager.run_manager())
         self.loop.create_task(self.video_manager.run_manager())
         self.loop.create_task(self.internal_server.run_server())
         self.loop.create_task(self.external_server.run_server())
+        return self.loop
+
+    def run(self):
         self.loop.run_forever()
 
     def shutdown(self):
         if self.loop.is_running():
-            self.loop.call_soon_threadsafe(self.loop.stop())
+            self.loop.call_soon_threadsafe(self.loop.stop)
             while self.loop.is_running():
                 time.sleep(0.1)
         tasks = asyncio.all_tasks(loop=self.loop)
@@ -80,6 +83,7 @@ class Server:
 
 if __name__ == '__main__':
     server = Server()
+    server.prepare_loop()
     try:
         server.run()
     except KeyboardInterrupt:

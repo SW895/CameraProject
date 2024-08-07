@@ -27,7 +27,8 @@ from run_server import Server
 from utils import Database, new_thread
 
 test_results = {}
-loop_list = []
+camera_conn_server = None
+client_loop = None
 mutex = threading.Lock()
 
 #@new_thread
@@ -43,18 +44,11 @@ mutex = threading.Lock()
 
 @new_thread
 def camera_conn_thread():
-    #loop = asyncio.new_event_loop()
-    #loop.create_task(main())
-    #add_loop_to_list(loop)
-    #loop.run_forever()
+    global camera_conn_server
     server = Server()
-    loop_list.append(server)
+    server.prepare_loop()
+    camera_conn_server = server
     server.run()
-
-
-#def set_up_client():
-#    client = client_thread()
-#    return client
 
 
 def set_up_server():
@@ -65,27 +59,17 @@ def set_up_server():
     return database, camera_conn_server
 
 
-def add_loop_to_list(loop):
-    global loop_list
-    with mutex:
-        loop_list.append(loop)
-
-
-#@new_thread
-#def test_reg_cam():
-#    loop = asyncio.new_event_loop()
-#    
-#    task = loop.create_task(RegisterCameras().run())
-#    response = loop.run_until_complete(task)
-#    test_results.update({'CAMERA_REGISTRATION': response})
+@new_thread
+def test_reg_cam():
+    loop = asyncio.new_event_loop()
+    task = loop.create_task(RegisterCameras().run())
+    response = loop.run_until_complete(task)
+    test_results.update({'CAMERA_REGISTRATION': response})
 
 
 def main_test():
-    #database, _ = set_up_server()
-    database = Database()
-    database.prepare_test_database()
-    th = camera_conn_thread()
-    time.sleep(2)
+    database, server_thread = set_up_server()
+
     #test_camera_reg = test_reg_cam()
     #test_camera_reg.join()
 
@@ -94,10 +78,8 @@ def main_test():
             logging.critical('%s........OK', result)
 
     database.cleanup_test_database()
-    #loop_list[0].loop.call_soon_threadsafe(loop_list[0].loop.stop)
-    #time.sleep(1)
-    loop_list[0].shutdown()
-    th.join()
+    camera_conn_server.shutdown()
+    server_thread.join()
 
 
 if __name__ == "__main__":

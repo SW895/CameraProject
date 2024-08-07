@@ -202,14 +202,18 @@ class VideoRequestManager(BaseManager, metaclass=SingletonMeta):
     garb_collector_timeout = GARB_COLLECTOR_TIMEOUT
 
     async def process_requesters(self):
+        """
+      #try:  
         while True:
             self.log.debug('Waiting for video request')
             try:
                 requester = await self.requesters.get()
+                self.requesters.task_done()
             except asyncio.CancelledError:
-                break
+                
+                return
 
-            self.requesters.task_done()
+            
             self.log.info('get video requester %s', requester.video_name)
             try:
                 current_request = self.requested_videos[requester.video_name]
@@ -220,7 +224,11 @@ class VideoRequestManager(BaseManager, metaclass=SingletonMeta):
                 self.log.debug('Video request alredy created')
             self.log.debug('Add requester to list')
             await current_request.add_requester(requester)
-
+      #except asyncio.CancelledError:
+          #await self.requesters.join()
+        """
+        while True:
+            await asyncio.sleep(1)
     async def create_new_request(self, video_name):
         self.requested_videos[video_name] = VideoRequest(video_name)
         current_request = self.requested_videos[video_name]
