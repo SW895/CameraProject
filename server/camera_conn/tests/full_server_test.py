@@ -18,26 +18,31 @@ from run_server import Server
 
 test_results = {}
 camera_conn_server = None
-fake_client = None
+client = None
 
-#@new_thread
-#def client_thread():
-#    loop = asyncio.new_event_loop()
-#    client = TestClient()
-#    client.set_signal_connection(SignalConnection())
-#    client.add_handlers(StreamConnection())
-#    loop.create_task(client.run_client())
-#    add_loop_to_list(loop)
-#    loop.run_forever()
+
+@new_thread
+def client_thread():
+    global client
+    client = TestClient()
+    client.set_signal_connection(SignalConnection())
+    client.add_handlers(StreamConnection())
+    client.prepare_loop()
+    client.run_client()
+
+
+def set_up_client():
+    client_th = client_thread()
+    time.sleep(1)
+    return client_th
 
 
 @new_thread
 def camera_conn_thread():
     global camera_conn_server
-    server = Server()
-    server.prepare_loop()
-    camera_conn_server = server
-    server.run()
+    camera_conn_server = Server()
+    camera_conn_server.prepare_loop()
+    camera_conn_server.run()
 
 
 def set_up_server():
@@ -64,10 +69,14 @@ def main_test():
 if __name__ == "__main__":
     if GLOBAL_TEST:
         database, server_thread = set_up_server()
+        client_th = set_up_client()
         main_test()
         database.cleanup_db_container()
+
         camera_conn_server.shutdown()
         server_thread.join()
+        client.shutdown()
+        client_th.join()
     else:
         logging.error('Set GLOBAL_TEST variable in settings.py to True')
 

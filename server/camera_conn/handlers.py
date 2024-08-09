@@ -28,7 +28,7 @@ class SignalHandler(BaseHandler):
     async def handle(self, request):
         if request.request_type != 'signal':
             return
-
+        self.log.debug('Signal handler started')
         await self.manager.requesters.put(request)
         return True
 
@@ -47,9 +47,8 @@ class NewRecordHandler(BaseHandler):
         return self._record_handler
 
     @classmethod
-    def save(self):
-        loop = asyncio.get_running_loop()
-        loop.create_task(self._record_handler.save())
+    async def save(self):
+        await self._record_handler.save()
 
     @classmethod
     async def handle(self, request):
@@ -80,7 +79,7 @@ class NewRecordHandler(BaseHandler):
             if record != "":
                 self.log.debug('RECORD:%s', record)
                 await self.get_handler().save_queue.put(json.loads(record))
-        self.save()
+        await self.save()
         return True
 
 

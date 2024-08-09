@@ -1,13 +1,17 @@
 import pytest
-from camera_conn.cam_server import RequestBuilder
-from camera_conn.managers import (VideoRequestManager,
-                                  VideoStreamManager,
-                                  VideoRequest,
-                                  StreamChannel,
-                                  SignalCollector,
-                                  Client)
-from camera_conn.camera_utils import (ErrorAfter,
-                                      CallableExhausted)
+import sys
+from pathlib import Path
+base_dir = Path(__file__).resolve().parent.parent
+sys.path.insert(1, str(base_dir))
+from cam_server import RequestBuilder
+from managers import (VideoRequestManager,
+                      VideoStreamManager,
+                      VideoRequest,
+                      StreamChannel,
+                      SignalCollector,
+                      Client)
+from camera_utils import (ErrorAfter,
+                          CallableExhausted)
 
 
 # -----------------------------------------------
@@ -74,11 +78,16 @@ async def test_get_requester_with_key_error(videostream_manager):
 
 
 @pytest.mark.asyncio
-async def test_get_requester_without_error(videostream_manager):
-    videostream_manager.stream_channels = {'test_camera': 'test'}
+async def test_get_requester_without_error(videostream_manager,
+                                           stream_channel,
+                                           mocker):
+    original = videostream_manager.run_channel
+    videostream_manager.run_channel = mocker.AsyncMock()
+    videostream_manager.stream_channels = {'test_camera': stream_channel}
     with pytest.raises(CallableExhausted):
         await videostream_manager.process_requesters()
-    videostream_manager.loop.create_task.assert_called()
+    videostream_manager.run_channel.assert_awaited()
+    videostream_manager.run_channel = original
 
 
 @pytest.mark.asyncio
@@ -163,6 +172,7 @@ async def test_timeout_exit_if_no_source(stream_channel):
 async def test_proper_clean_up_with_no_source(stream_channel,
                                               stream_requester,
                                               mocker):
+    stream_channel.consumer_list = []
     stream_channel.source_queue = mocker.AsyncMock()
     stream_channel.source_queue.get.side_effect = TimeoutError
     await stream_channel.add_consumer(stream_requester)
@@ -189,6 +199,7 @@ async def test_data_sended_to_consumers(stream_channel,
 @pytest.mark.asyncio
 async def test_remove_consumer(stream_channel, stream_requester, mocker):
     stream_requester.writer.write = mocker.Mock(side_effect=BrokenPipeError)
+    stream_channel.consumer_list = []
     await stream_channel.add_consumer(stream_requester)
     await stream_channel.send_to_all(b'100')
     assert stream_channel.consumer_list == []
@@ -198,6 +209,7 @@ async def test_remove_consumer(stream_channel, stream_requester, mocker):
 async def test_proper_clean_up(stream_channel,
                                stream_requester,
                                stream_response):
+    stream_channel.consumer_list = []
     stream_channel.source = stream_response
     stream_channel.task = 'test'
     await stream_channel.add_consumer(stream_requester)
@@ -418,7 +430,9 @@ def custom_signal():
 def client(client_request, custom_signal, mocker):
     client = Client(client_request)
     client.signal_queue = mocker.AsyncMock()
-    client.signal_queue.get.return_value = custom_signal
+    client.signal_queue.get.side_effect = ErrorAfter(
+                                            limit=1,
+                                            return_value=custom_signal)
     return client
 
 
@@ -499,18 +513,18 @@ async def test_remove_expired_clients(signal_collector,
 
 @pytest.mark.asyncio
 async def test_proper_request_lost_connection(client, mocker):
-    original = client.process_signals
-    client.process_signals = mocker.AsyncMock(side_effect=ConnectionResetError)
+    client.task = 'test'
+    client.client.writer.write = mocker.Mock(side_effect=BrokenPipeError)
     await client.handle_signals()
+    assert client.task is None
     client.client.writer.close.assert_called()
-    client.process_signals = original
 
 
 @pytest.mark.asyncio
 async def test_process_signal(client, custom_signal):
     client.client.writer.write.side_effect = None
-
-    await client.process_signals()
+    with pytest.raises(CallableExhausted):
+        await client.handle_signals()
     excpected_result = (custom_signal.serialize()).encode()
     client.client.writer.write.assert_called_once_with(excpected_result)
     client.client.writer.drain.assert_awaited_once()

@@ -1,13 +1,17 @@
 import pytest
-from camera_conn.handlers import (SignalHandler,
-                                  NewRecordHandler,
-                                  VideoStreamRequestHandler,
-                                  VideoStreamResponseHandler,
-                                  VideoRequestHandler,
-                                  VideoResponseHandler,
-                                  AproveUserRequestHandler)
-from camera_conn.cam_server import RequestBuilder
-from camera_conn.db import NewVideoRecord, CameraRecord, UserRecord
+import sys
+from pathlib import Path
+base_dir = Path(__file__).resolve().parent.parent
+sys.path.insert(1, str(base_dir))
+from handlers import (SignalHandler,
+                      NewRecordHandler,
+                      VideoStreamRequestHandler,
+                      VideoStreamResponseHandler,
+                      VideoRequestHandler,
+                      VideoResponseHandler,
+                      AproveUserRequestHandler)
+from cam_server import RequestBuilder
+from db import NewVideoRecord, CameraRecord, UserRecord
 
 pytest_plugins = ('pytest_asyncio', )
 

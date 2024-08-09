@@ -12,6 +12,7 @@ class BaseManager:
 
     responses = asyncio.Queue()
     requesters = asyncio.Queue()
+    background_tasks = set()
 
     def set_signal_handler(self, signal_handler):
         self._signal_hander = signal_handler
@@ -19,9 +20,14 @@ class BaseManager:
     async def run_manager(self):
         self.log.info('Starting manager')
         self.loop = asyncio.get_running_loop()
-        self.loop.create_task(self.process_requesters())
-        self.loop.create_task(self.process_responses())
-        self.loop.create_task(self.garb_collector())
+        self.background_tasks.add(
+            self.loop.create_task(self.process_requesters()))
+        self.background_tasks.add(
+            self.loop.create_task(self.process_responses()))
+        self.background_tasks.add(
+            self.loop.create_task(self.garb_collector()))
+        for task in self.background_tasks:
+            task.add_done_callback(self.background_tasks.discard)
 
     async def process_requesters(self):
         raise NotImplementedError
@@ -59,7 +65,7 @@ class VideoStreamManager(BaseManager, metaclass=SingletonMeta):
                 self.log.error('No such camera')
                 continue
             self.log.debug('Starting channel')
-            self.loop.create_task(self.run_channel(current_channel, requester))
+            await self.run_channel(current_channel, requester)
 
     async def process_responses(self):
         while True:
@@ -171,8 +177,6 @@ class StreamChannel:
             except Exception as error:
                 self.log.debug('Connection to consumer lost: %s', error)
                 self.consumer_list.remove(consumer)
-#               consumer.writer.close()
-#               await consumer.writer.wait_closed() ?????????????
 
     async def clean_up(self):
         if self.source:
@@ -202,18 +206,14 @@ class VideoRequestManager(BaseManager, metaclass=SingletonMeta):
     garb_collector_timeout = GARB_COLLECTOR_TIMEOUT
 
     async def process_requesters(self):
-        """
-      #try:  
         while True:
             self.log.debug('Waiting for video request')
             try:
                 requester = await self.requesters.get()
                 self.requesters.task_done()
             except asyncio.CancelledError:
-                
                 return
 
-            
             self.log.info('get video requester %s', requester.video_name)
             try:
                 current_request = self.requested_videos[requester.video_name]
@@ -224,15 +224,12 @@ class VideoRequestManager(BaseManager, metaclass=SingletonMeta):
                 self.log.debug('Video request alredy created')
             self.log.debug('Add requester to list')
             await current_request.add_requester(requester)
-      #except asyncio.CancelledError:
-          #await self.requesters.join()
-        """
-        while True:
-            await asyncio.sleep(1)
+
     async def create_new_request(self, video_name):
         self.requested_videos[video_name] = VideoRequest(video_name)
         current_request = self.requested_videos[video_name]
-        self.loop.create_task(current_request.process_request())
+        current_request.task = self.loop.create_task(
+                                    current_request.process_request())
         self.log.debug('Created video request')
         builder = RequestBuilder().with_args(request_type='video',
                                              video_name=video_name)
@@ -279,6 +276,7 @@ class VideoRequest:
     response = None
     requesters = []
     response_timeout = VIDEO_REQUEST_TIMEOUT
+    task = None
 
     def __init__(self, video_name):
         self.video_name = video_name
@@ -314,6 +312,7 @@ class VideoRequest:
             self.log.info('RESPONSE NAME: %s', self.response)
 
         self.task_done = True
+        self.task = None
         self.requesters = []
 
 
@@ -341,8 +340,8 @@ class SignalCollector(BaseManager, metaclass=SingletonMeta):
                 current_client.client.writer.close()
                 await current_client.client.writer.wait_closed()
                 self.clients[requester.client_id] = Client(requester)
-            self.loop.create_task(
-                self.clients[requester.client_id].handle_signals())
+            self.clients[requester.client_id].task = self.loop.create_task(
+                            self.clients[requester.client_id].handle_signals())
 
     async def process_responses(self):  # get signals to transmit
         while True:
@@ -375,6 +374,7 @@ class SignalCollector(BaseManager, metaclass=SingletonMeta):
 class Client:
 
     dead = False
+    task = None
     signal_queue = asyncio.Queue()
 
     def __init__(self, client):
@@ -391,21 +391,21 @@ class Client:
 
     async def handle_signals(self):
         while True:
+            self.log.info('Waiting for new signal')
             try:
-                await self.process_signals()
-            except Exception as error:
-                self.log.warning('Connection lost. Error:%s', error)
+                signal = await self.signal_queue.get()
+            except asyncio.CancelledError:
                 break
+            self.signal_queue.task_done()
+            self.log.info('Get signal:%s', signal.request_type)
+            self.log.info('Sending signal')
+            try:
+                self.client.writer.write(signal.serialize().encode())
+            except Exception:
+                break
+            else:
+                await self.client.writer.drain()
 
+        self.task = None
         self.client.writer.close()
         await self.client.writer.wait_closed()
-
-    async def process_signals(self):
-        self.log.info('Waiting for new signal')
-        signal = await self.signal_queue.get()
-        self.signal_queue.task_done()
-        self.log.info('Get signal:%s', signal.request_type)
-        self.log.info('Sending signal')
-        message = signal.serialize()
-        self.client.writer.write(message.encode())
-        await self.client.writer.drain()

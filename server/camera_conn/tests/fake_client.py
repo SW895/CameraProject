@@ -1,6 +1,7 @@
 import asyncio
 import json
 import sys
+import time
 from pathlib import Path
 base_dir = Path(__file__).resolve().parent.parent
 sys.path.insert(1, str(base_dir))
@@ -8,14 +9,14 @@ from cam_server import RequestBuilder
 from settings import (EXTERNAL_HOST,
                       EXTERNAL_PORT,
                       SOCKET_BUFF_SIZE)
+import logging
 
 TEST_CAMERA_NUM = 2
 
 
 class TestClient:
 
-    def __init__(self):
-        pass
+    background_tasks = set()
 
     def set_signal_connection(self, signal_conn):
         self._signal_conn = signal_conn
@@ -23,12 +24,28 @@ class TestClient:
     def add_handlers(self, *args):
         self._signal_conn.add_handlers(*args)
 
-    async def run_signal_connection(self):
-        await self._signal_conn.run()
+    def prepare_loop(self):
+        self.loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self.loop)
+        task = self.loop.create_task(self._signal_conn.run())
+        self.background_tasks.add(task)
+        task.add_done_callback(self.background_tasks.discard)
 
-    async def run_client(self):
-        loop = asyncio.get_running_loop()
-        loop.create_task(self.run_signal_connection())
+    def run_client(self):
+        self.loop.run_forever()
+
+    def shutdown(self):
+        if self.loop.is_running():
+            self.loop.call_soon_threadsafe(self.loop.stop)
+            while self.loop.is_running():
+                time.sleep(0.1)
+        tasks = asyncio.all_tasks(loop=self.loop)
+        if tasks:
+            for task in tasks:
+                task.cancel()
+            group = asyncio.gather(*tasks, return_exceptions=True)
+            self.loop.run_until_complete(group)
+        self.loop.close()
 
 
 class BaseConnection:
@@ -41,6 +58,7 @@ class BaseConnection:
         raise NotImplementedError
 
     async def get_connection(self, request):
+        logging.debug('GETTING CONNECTION')
         reader, writer = await asyncio.open_connection(
                         self.host, self.port)
 
@@ -65,18 +83,22 @@ class SignalConnection(BaseConnection):
 
     async def run(self):
         reader, writer = await self.get_connection(self.request)
-        try:
-            data = await reader.read(self.buff_size)
-        except asyncio.CancelledError:
-            return
-        builder = RequestBuilder().with_bytes(data)
-        request = builder.build()
-        for handler in self.handlers:
-            result = await handler.run(request)
-            if result:
-                break
-        writer.close()
-        await writer.wait_closed()
+        while True:
+            try:
+                data = await reader.read(self.buff_size)
+            except asyncio.CancelledError:
+                logging.debug('CORO FINISHED cancelled')
+                return
+            if data:
+                builder = RequestBuilder().with_bytes(data)
+                request = builder.build()
+                for handler in self.handlers:
+                    result = await handler.run(request)
+                    if result:
+                        break
+            else:
+                logging.debug('CORO FINISHED')
+                return
 
 
 class RegisterCameras(BaseConnection):

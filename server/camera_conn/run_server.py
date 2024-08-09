@@ -24,6 +24,8 @@ import time
 
 class Server:
 
+    background_tasks = set()
+
     def __init__(self):
         self.log = logging.getLogger('MAIN SERVER')
         self.external_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -58,11 +60,19 @@ class Server:
 
     def prepare_loop(self):
         self.loop = asyncio.new_event_loop()
-        self.loop.create_task(self.signal_collector.run_manager())
-        self.loop.create_task(self.stream_manager.run_manager())
-        self.loop.create_task(self.video_manager.run_manager())
-        self.loop.create_task(self.internal_server.run_server())
-        self.loop.create_task(self.external_server.run_server())
+        asyncio.set_event_loop(self.loop)
+        self.background_tasks.add(self.loop.create_task(
+            self.signal_collector.run_manager()))
+        self.background_tasks.add(self.loop.create_task(
+            self.stream_manager.run_manager()))
+        self.background_tasks.add(self.loop.create_task(
+            self.video_manager.run_manager()))
+        self.background_tasks.add(self.loop.create_task(
+            self.internal_server.run_server()))
+        self.background_tasks.add(self.loop.create_task(
+            self.external_server.run_server()))
+        for task in self.background_tasks:
+            task.add_done_callback(self.background_tasks.discard)
         return self.loop
 
     def run(self):
@@ -74,10 +84,11 @@ class Server:
             while self.loop.is_running():
                 time.sleep(0.1)
         tasks = asyncio.all_tasks(loop=self.loop)
-        for task in tasks:
-            task.cancel()
-        group = asyncio.gather(*tasks, return_exceptions=True)
-        self.loop.run_until_complete(group)
+        if tasks:
+            for task in tasks:
+                task.cancel()
+            group = asyncio.gather(*tasks, return_exceptions=True)
+            self.loop.run_until_complete(group)
         self.loop.close()
 
 
