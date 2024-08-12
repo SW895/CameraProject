@@ -4,7 +4,7 @@ import sys
 import subprocess
 import time
 from pathlib import Path
-base_dir = Path(__file__).resolve().parent.parent
+base_dir = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(1, str(base_dir))
 from settings import (DB_NAME,
                       DB_HOST,
@@ -44,6 +44,7 @@ class TestDatabase:
              'POSTGRES_PASSWORD': DB_PASSWORD,
              'POSTGRES_HOST': 'test',
              'POSTGRES_PORT': DB_PORT,
+             'PGTZ': 'GMT+3',
             }
         self.container_name = 'test_db'
         self.client = docker.from_env()
@@ -55,7 +56,8 @@ class TestDatabase:
                             detach=True)
         time.sleep(2)
         subprocess.run(f'python {base_dir.parent}/djbackend/manage.py migrate \
-                       --database test_db', shell=True)
+                       --database test_db',
+                       shell=True)
 
     def cleanup_db_container(self):
         self.container.stop()

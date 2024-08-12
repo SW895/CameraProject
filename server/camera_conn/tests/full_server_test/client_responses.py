@@ -1,17 +1,15 @@
 import asyncio
-import json
 import sys
+import json
 import time
+import logging
 from pathlib import Path
-base_dir = Path(__file__).resolve().parent.parent
+base_dir = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(1, str(base_dir))
 from cam_server import RequestBuilder
 from settings import (EXTERNAL_HOST,
                       EXTERNAL_PORT,
                       SOCKET_BUFF_SIZE)
-import logging
-
-TEST_CAMERA_NUM = 2
 
 
 class TestClient:
@@ -20,6 +18,10 @@ class TestClient:
 
     def set_signal_connection(self, signal_conn):
         self._signal_conn = signal_conn
+
+    @property
+    def result(self):
+        return self._signal_conn.results
 
     def add_handlers(self, *args):
         self._signal_conn.add_handlers(*args)
@@ -72,6 +74,7 @@ class BaseConnection:
 
 class SignalConnection(BaseConnection):
     handlers = []
+    results = {}
 
     def __init__(self):
         builder = RequestBuilder().with_args(request_type='signal')
@@ -95,35 +98,12 @@ class SignalConnection(BaseConnection):
                 for handler in self.handlers:
                     result = await handler.run(request)
                     if result:
+                        self.results.update({request.request_type:
+                                             json.loads(result)})
                         break
             else:
                 logging.debug('CORO FINISHED')
                 return
-
-
-class RegisterCameras(BaseConnection):
-
-    def __init__(self):
-        cam_list = []
-        for test_camera in range(TEST_CAMERA_NUM):
-            camera_name = f'test_camera_{test_camera}'
-            cam_list.append({'camera_name': camera_name})
-        self.record = ''
-        for item in cam_list:
-            self.record += json.dumps(item) + '\n'
-
-        builder = RequestBuilder().with_args(request_type='new_camera_record',
-                                             record_size=len(self.record))
-        self.request = builder.build()
-
-    async def run(self):
-        reader, writer = await self.get_connection(self.request)
-        writer.write(self.record.encode())
-        await writer.drain()
-        reply = await reader.read(self.buff_size)
-        writer.close()
-        await writer.wait_closed()
-        return reply.decode()
 
 
 class StreamConnection(BaseConnection):
@@ -133,8 +113,32 @@ class StreamConnection(BaseConnection):
                                              camera_name='test_camera_1')
         self.request = builder.build()
 
-    async def run(self):
+    async def run(self, request):
+        if request.request_type != 'stream_request':
+            return
         reader, writer = await self.get_connection(self.request)
         for i in range(10):
             writer.write(bytes(1000))
             await writer.drain()
+        return True
+
+
+class UserAproveResponse(BaseConnection):
+
+    def __init__(self):
+        record = {'username': 'test_user',
+                  'request_result': 'aproved'}
+        self.record = json.dumps(record) + '\n'
+        builder = RequestBuilder()\
+            .with_args(request_type='aprove_user_response',
+                       record_size=len(self.record))
+        self.request = builder.build()
+
+    async def run(self, request):
+        if request.request_type != 'aprove_user_request':
+            return
+        reader, writer = await self.get_connection(self.request)
+        writer.write(self.record.encode())
+        await writer.drain()
+        result = await reader.read(self.buff_size)
+        return result.decode()
