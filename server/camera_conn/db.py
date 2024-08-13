@@ -163,11 +163,11 @@ async def connect_to_db():
     db_port = DB_PORT
     try:
         db_conn = await psycopg.AsyncConnection.connect(
-                                            dbname=dbname,
-                                            user=db_user,
-                                            password=db_password,
-                                            host=db_host,
-                                            port=db_port)
+            dbname=dbname,
+            user=db_user,
+            password=db_password,
+            host=db_host,
+            port=db_port)
     except Exception as error:
         logging.error('FAILED TO CONNECT TO DB: %s', error)
         return None, None

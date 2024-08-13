@@ -62,7 +62,7 @@ class BaseConnection:
 
     async def get_connection(self, request):
         reader, writer = await asyncio.open_connection(
-                        self.host, self.port)
+            self.host, self.port)
 
         writer.write(request.serialize().encode())
         await writer.drain()

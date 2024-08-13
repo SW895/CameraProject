@@ -59,7 +59,8 @@ def set_up_testing_env():
 
 
 def clean_up_testing_env():
-    global client, camera_conn_server, database, camera_conn_thread, client_thread
+    global client, camera_conn_server, database
+    global camera_conn_thread, client_thread
     database.cleanup_db_container()
     camera_conn_server.shutdown()
     camera_conn_thread.join()

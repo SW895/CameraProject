@@ -152,9 +152,9 @@ class VideoResponseHandler(BaseHandler):
 
         if request.video_size == 0:
             builder = RequestBuilder().with_args(
-                        request_type='video_reponse',
-                        request_result='failure',
-                        video_name=request.video_name)
+                request_type='video_reponse',
+                request_result='failure',
+                video_name=request.video_name)
             response = builder.build()
             await self.manager.responses.put(response)
             self.log.error('No such video')
@@ -174,18 +174,18 @@ class VideoResponseHandler(BaseHandler):
 
         if len(video_data) != request.video_size:
             builder = RequestBuilder().with_args(
-                        request_type='video_reponse',
-                        request_result='failure',
-                        video_name=request.video_name)
+                request_type='video_reponse',
+                request_result='failure',
+                video_name=request.video_name)
             response = builder.build()
             await self.manager.responses.put(response)
             self.log.warning('Failed to receive video file')
             return True
 
         self.log.info('%s', self.video_save_path)
-        video_name_save = os.path.join(str(self.video_save_path) +
-                                       request.video_name.split('|')[0] +
-                                       '.mp4')
+        video_name_save = os.path.join(str(self.video_save_path)
+                                       + request.video_name.split('|')[0]
+                                       + '.mp4')
 
         self.log.info('Saving file')
         save_coro = asyncio.to_thread(self.save_file,
@@ -193,9 +193,9 @@ class VideoResponseHandler(BaseHandler):
                                       video_data)
         await save_coro
         builder = RequestBuilder().with_args(
-                        request_type='video_reponse',
-                        request_result='success',
-                        video_name=request.video_name)
+            request_type='video_reponse',
+            request_result='success',
+            video_name=request.video_name)
         response = builder.build()
         await self.manager.responses.put(response)
         self.log.info('File received')
