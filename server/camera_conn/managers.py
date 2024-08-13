@@ -10,8 +10,6 @@ from settings import (SOCKET_BUFF_SIZE,
 
 class BaseManager:
 
-    responses = asyncio.Queue()
-    requesters = asyncio.Queue()
     background_tasks = set()
 
     def set_signal_handler(self, signal_handler):
@@ -36,7 +34,7 @@ class BaseManager:
         raise NotImplementedError
 
     async def send_request(self, signal):
-        await self._signal_hander.responses.put(signal)
+        await self._signal_hander.signal_queue.put(signal)
 
     async def garb_collector(self):
         pass
@@ -44,6 +42,8 @@ class BaseManager:
 
 class VideoStreamManager(BaseManager, metaclass=SingletonMeta):
 
+    responses = asyncio.Queue()
+    requesters = asyncio.Queue()
     stream_channels = {}
     log = logging.getLogger('VideoStream Manager')
 
@@ -94,7 +94,7 @@ class VideoStreamManager(BaseManager, metaclass=SingletonMeta):
         self._camera_handler = camera_handler
 
     async def get_active_camera_list(self):
-        return await self._camera_handler.get_acive_acamera_list()
+        return await self._camera_handler.get_active_camera_list()
 
     async def run_channel(self, channel, requester):
         if channel.consumer_list:
@@ -106,7 +106,7 @@ class VideoStreamManager(BaseManager, metaclass=SingletonMeta):
                 await channel.task
             self.log.debug('Sending stream request')
             builder = RequestBuilder().with_args(
-                        request_type='stream',
+                        request_type='stream_request',
                         camera_name=channel.camera_name)
             request = builder.build()
             await self.send_request(request)
@@ -141,6 +141,7 @@ class StreamChannel:
         self.consumer_list.append(consumer)
 
     async def run_channel(self):
+        self.log.debug('CHANNEL STARTED')
         try:
             self.source = await asyncio.wait_for(self.source_queue.get(),
                                                  self.source_timeout)
@@ -148,15 +149,10 @@ class StreamChannel:
             self.log.debug('SOURCE TIMEOUT')
             await self.clean_up()
             return 'TimeoutError'
-
-        self.log.debug('Get stream source %s', self.source)
         self.source_queue.task_done()
-        self.log.debug('%s, %s', self.consumer_list, self.source.writer)
-
         try:
             while self.consumer_list and self.source:
                 data = await self.source.reader.read(self.buff_size)
-                self.log.debug('DATA RECEIVED %s', len(data))
                 if not data:
                     self.log.debug('Connection to camera lost')
                     raise asyncio.CancelledError
@@ -173,7 +169,6 @@ class StreamChannel:
             try:
                 consumer.writer.write(data)
                 await consumer.writer.drain()
-                self.log.debug('DATA SENDED %s', len(data))
             except Exception as error:
                 self.log.debug('Connection to consumer lost: %s', error)
                 self.consumer_list.remove(consumer)
@@ -201,6 +196,8 @@ class StreamChannel:
 
 class VideoRequestManager(BaseManager, metaclass=SingletonMeta):
 
+    responses = asyncio.Queue()
+    requesters = asyncio.Queue()
     log = logging.getLogger('Video Request Manager')
     requested_videos = {}
     garb_collector_timeout = GARB_COLLECTOR_TIMEOUT
@@ -318,6 +315,8 @@ class VideoRequest:
 
 class SignalCollector(BaseManager, metaclass=SingletonMeta):
 
+    signal_queue = asyncio.Queue()
+    client_queue = asyncio.Queue()
     log = logging.getLogger('Signal manager')
     clients = {}
     garb_collector_timeout = GARB_COLLECTOR_TIMEOUT
@@ -325,36 +324,38 @@ class SignalCollector(BaseManager, metaclass=SingletonMeta):
     async def process_requesters(self):  # register clients
         while True:
             try:
-                requester = await self.requesters.get()
+                client = await self.client_queue.get()
             except asyncio.CancelledError:
                 break
 
             try:
-                current_client = self.clients[requester.client_id]
+                current_client = self.clients[client.client_id]
             except KeyError:
                 self.log.debug('Creating new client')
                 current_client = \
-                    self.clients[requester.client_id] = Client(requester)
+                    self.clients[client.client_id] = Client(client)
             else:
                 self.log.debug('Current client already exists. Updating..')
                 current_client.client.writer.close()
                 await current_client.client.writer.wait_closed()
-                self.clients[requester.client_id] = Client(requester)
-            self.clients[requester.client_id].task = self.loop.create_task(
-                            self.clients[requester.client_id].handle_signals())
+                self.clients[client.client_id] = Client(client)
+            self.clients[client.client_id].task = self.loop.create_task(
+                            self.clients[client.client_id].handle_signals())
 
     async def process_responses(self):  # get signals to transmit
         while True:
+            self.log.debug('Wait for signal')
             try:
-                signal = await self.responses.get()
+                signal = await self.signal_queue.get()
             except asyncio.CancelledError:
                 break
-
+            self.log.debug('Get signal, processing...')
             try:
                 current_client = self.clients[signal.client_id]
             except KeyError:
                 self.log.error('No such client %s', signal.client_id)
             else:
+                self.log.debug('Put signal to client %s', signal.client_id)
                 await current_client.signal_queue.put(signal)
 
     async def garb_collector(self):
@@ -395,13 +396,15 @@ class Client:
             try:
                 signal = await self.signal_queue.get()
             except asyncio.CancelledError:
+                self.log.debug('Courutine cancelled')
                 break
             self.signal_queue.task_done()
             self.log.info('Get signal:%s', signal.request_type)
             self.log.info('Sending signal')
             try:
                 self.client.writer.write(signal.serialize().encode())
-            except Exception:
+            except Exception as error:
+                self.log.error('Connection to client lost, %s', error)
                 break
             else:
                 await self.client.writer.drain()

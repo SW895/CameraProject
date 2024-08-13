@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import json
 import sys
 import time
 from utils import TestDatabase, new_thread
@@ -22,6 +21,9 @@ from run_server import Server
 test_results = {}
 camera_conn_server = None
 client = None
+database = None
+camera_conn_thread = None
+client_thread = None
 
 
 # -----------------------------------------------
@@ -29,7 +31,7 @@ client = None
 # -----------------------------------------------
 
 @new_thread
-def client_thread():
+def run_client():
     global client
     client = TestClient()
     client.set_signal_connection(SignalConnection())
@@ -39,26 +41,30 @@ def client_thread():
     client.run_client()
 
 
-def set_up_client():
-    client_th = client_thread()
-    time.sleep(1)
-    return client_th
-
-
 @new_thread
-def camera_conn_thread():
+def run_server():
     global camera_conn_server
     camera_conn_server = Server()
     camera_conn_server.prepare_loop()
     camera_conn_server.run()
 
 
-def set_up_server():
+def set_up_testing_env():
+    global database, camera_conn_thread, client_thread
     database = TestDatabase()
     database.prepare_db_container()
-    camera_conn_server = camera_conn_thread()
+    camera_conn_thread = run_server()
+    client_thread = run_client()
     time.sleep(1)
-    return database, camera_conn_server
+
+
+def clean_up_testing_env():
+    global client, camera_conn_server, database, camera_conn_thread, client_thread
+    database.cleanup_db_container()
+    camera_conn_server.shutdown()
+    camera_conn_thread.join()
+    client.shutdown()
+    client_thread.join()
 
 
 # -----------------------------------------------
@@ -70,7 +76,11 @@ def test_reg_cam():
     loop = asyncio.new_event_loop()
     task = loop.create_task(RegisterCameras().run())
     response = loop.run_until_complete(task)
-    test_results.update({'CAMERA REGISTRATION': json.loads(response)})
+    if response['status'] == 'success':
+        result = True
+    else:
+        result = False
+    test_results.update({'CAMERA REGISTRATION': result})
 
 
 # -----------------------------------------------
@@ -82,7 +92,11 @@ def test_new_video_record():
     loop = asyncio.new_event_loop()
     task = loop.create_task(NewVideoRecord().run())
     response = loop.run_until_complete(task)
-    test_results.update({'ADD NEW VIDEO RECORD': json.loads(response)})
+    if response['status'] == 'success':
+        result = True
+    else:
+        result = False
+    test_results.update({'ADD NEW VIDEO RECORD': result})
 
 
 # -----------------------------------------------
@@ -103,7 +117,25 @@ def test_aprove_user_record():
 # -----------------------------------------------
 # ------------ Stream test ----------------------
 # -----------------------------------------------
+
+@new_thread
+def test_stream_request():
+    loop = asyncio.new_event_loop()
+    task = loop.create_task(StreamRequest().run())
+    response = loop.run_until_complete(task)
+    if response['corrupted_frames'] / response['good_frames'] < 0.01:
+        result = True
+    else:
+        result = False
+    test_results.update({'SINGLE STREAM REQUEST': result})
+
+
+# -----------------------------------------------
+# ------------ MAIN -----------------------------
+# -----------------------------------------------
+
 def main():
+    print('Wait for all tests to finish')
     test_camera_reg = test_reg_cam()
     test_camera_reg.join()
 
@@ -112,30 +144,31 @@ def main():
 
     test_aprove_user = test_aprove_user_record()
     test_aprove_user.join()
-    time.sleep(1)
+
+    test_stream = test_stream_request()
+    test_stream.join()
+
+
+def print_results():
+    global client
+    global test_results
+    print('TESTING SUMMARY:')
+    test_results.update(client.result)
+    for result in test_results:
+        if test_results[result]:
+            right_padding = result.ljust(40, '.')
+            if test_results[result]:
+                print(f'{right_padding}OK')
+            else:
+                print(f'{right_padding}FAILED')
 
 
 if __name__ == "__main__":
     if GLOBAL_TEST:
-        database, server_thread = set_up_server()
-        client_th = set_up_client()
+        set_up_testing_env()
         main()
-        database.cleanup_db_container()
-        camera_conn_server.shutdown()
-        server_thread.join()
-        client.shutdown()
-        client_th.join()
+        print_results()
+        clean_up_testing_env()
     else:
-        logging.error('Set GLOBAL_TEST variable in settings.py to True')
-
-
-print('TESTING SUMMARY:')
-test_results.update(client.result)
-for result in test_results:
-    if test_results[result]:
-        name = result.upper().replace('_', ' ')
-        right_padding = name.ljust(40, '.')
-        if test_results[result]['status'] == 'success':
-            print(f'{right_padding}OK')
-        else:
-            print(f'{right_padding}FAILED')
+        logging.error('Set GLOBAL_TEST variable in \
+                      server/camera_conn/settings.py to True')

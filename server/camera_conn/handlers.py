@@ -29,7 +29,7 @@ class SignalHandler(BaseHandler):
         if request.request_type != 'signal':
             return
         self.log.debug('Signal handler started')
-        await self.manager.requesters.put(request)
+        await self.manager.client_queue.put(request)
         return True
 
 
@@ -212,7 +212,8 @@ class AproveUserRequestHandler(BaseHandler):
         if request.request_type != 'aprove_user_request':
             return
         self.log.debug('User Request processing %s', request)
-        await self.signal.responses.put(request)
+        self.log.debug(isinstance(self.signal, SignalCollector))
+        await self.signal.signal_queue.put(request)
         request.writer.close()
         await request.writer.wait_closed()
         return True

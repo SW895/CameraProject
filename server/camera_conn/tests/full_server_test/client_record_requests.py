@@ -17,7 +17,7 @@ class BaseRecord(BaseConnection):
         reply = await reader.read(self.buff_size)
         writer.close()
         await writer.wait_closed()
-        return reply.decode()
+        return json.loads(reply.decode())
 
 
 class RegisterCameras(BaseRecord):

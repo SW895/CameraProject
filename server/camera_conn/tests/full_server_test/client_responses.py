@@ -2,7 +2,8 @@ import asyncio
 import sys
 import json
 import time
-import logging
+import base64
+import struct
 from pathlib import Path
 base_dir = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(1, str(base_dir))
@@ -60,7 +61,6 @@ class BaseConnection:
         raise NotImplementedError
 
     async def get_connection(self, request):
-        logging.debug('GETTING CONNECTION')
         reader, writer = await asyncio.open_connection(
                         self.host, self.port)
 
@@ -90,19 +90,15 @@ class SignalConnection(BaseConnection):
             try:
                 data = await reader.read(self.buff_size)
             except asyncio.CancelledError:
-                logging.debug('CORO FINISHED cancelled')
                 return
             if data:
                 builder = RequestBuilder().with_bytes(data)
                 request = builder.build()
                 for handler in self.handlers:
                     result = await handler.run(request)
-                    if result:
-                        self.results.update({request.request_type:
-                                             json.loads(result)})
-                        break
+                    if isinstance(result, dict):
+                        self.results.update(result)
             else:
-                logging.debug('CORO FINISHED')
                 return
 
 
@@ -117,10 +113,17 @@ class StreamConnection(BaseConnection):
         if request.request_type != 'stream_request':
             return
         reader, writer = await self.get_connection(self.request)
-        for i in range(10):
-            writer.write(bytes(1000))
-            await writer.drain()
-        return True
+        path = Path(__file__).resolve().parent
+        with open(f"{path}/test.jpg", "rb") as image_file:
+            encoded_image = base64.b64encode(image_file.read())
+
+        message = struct.pack("Q", len(encoded_image)) + encoded_image
+        while True:
+            try:
+                writer.write(message)
+                await writer.drain()
+            except Exception:
+                return
 
 
 class UserAproveResponse(BaseConnection):
@@ -140,5 +143,10 @@ class UserAproveResponse(BaseConnection):
         reader, writer = await self.get_connection(self.request)
         writer.write(self.record.encode())
         await writer.drain()
-        result = await reader.read(self.buff_size)
-        return result.decode()
+        reply = await reader.read(self.buff_size)
+        response = json.loads(reply.decode())
+        if response['status'] == 'success':
+            result = True
+        else:
+            result = False
+        return {request.request_type.upper().replace('_', ' '): result}
