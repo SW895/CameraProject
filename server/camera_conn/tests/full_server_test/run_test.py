@@ -4,13 +4,16 @@ import sys
 import time
 from utils import TestDatabase, new_thread
 from backend_requests import (StreamRequest,
-                              AproveUserRequest)
+                              AproveUserRequest,
+                              VideoSuccessRequest,
+                              VideoFailedRequest)
 from client_record_requests import (RegisterCameras,
                                     NewVideoRecord,)
 from client_responses import (TestClient,
                               SignalConnection,
                               StreamConnection,
-                              UserAproveResponse)
+                              UserAproveResponse,
+                              VideoResponse)
 from pathlib import Path
 base_dir = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(1, str(base_dir))
@@ -36,7 +39,8 @@ def run_client():
     client = TestClient()
     client.set_signal_connection(SignalConnection())
     client.add_handlers(StreamConnection(),
-                        UserAproveResponse())
+                        UserAproveResponse(),
+                        VideoResponse())
     client.prepare_loop()
     client.run_client()
 
@@ -74,6 +78,7 @@ def clean_up_testing_env():
 
 @new_thread
 def test_reg_cam():
+    global test_results
     loop = asyncio.new_event_loop()
     task = loop.create_task(RegisterCameras().run())
     response = loop.run_until_complete(task)
@@ -81,7 +86,7 @@ def test_reg_cam():
         result = True
     else:
         result = False
-    test_results.update({'CAMERA REGISTRATION': result})
+    test_results.update({'ADD NEW CAMERA RECORD': result})
 
 
 # -----------------------------------------------
@@ -90,6 +95,7 @@ def test_reg_cam():
 
 @new_thread
 def test_new_video_record():
+    global test_results
     loop = asyncio.new_event_loop()
     task = loop.create_task(NewVideoRecord().run())
     response = loop.run_until_complete(task)
@@ -110,9 +116,27 @@ def test_aprove_user_record():
     task = loop.create_task(AproveUserRequest().run())
     loop.run_until_complete(task)
 
+
 # -----------------------------------------------
 # ------------ Video request test ---------------
 # -----------------------------------------------
+
+@new_thread
+def test_success_video_request():
+    global test_results
+    loop = asyncio.new_event_loop()
+    task = loop.create_task(VideoSuccessRequest().run())
+    response = loop.run_until_complete(task)
+    test_results.update({'SUCCESS VIDEO REQUEST': response})
+
+
+@new_thread
+def test_failed_video_request():
+    global test_results
+    loop = asyncio.new_event_loop()
+    task = loop.create_task(VideoFailedRequest().run())
+    response = loop.run_until_complete(task)
+    test_results.update({'FAILED VIDEO REQUEST': response})
 
 
 # -----------------------------------------------
@@ -121,6 +145,7 @@ def test_aprove_user_record():
 
 @new_thread
 def test_stream_request():
+    global test_results
     loop = asyncio.new_event_loop()
     task = loop.create_task(StreamRequest().run())
     response = loop.run_until_complete(task)
@@ -128,7 +153,7 @@ def test_stream_request():
         result = True
     else:
         result = False
-    test_results.update({'SINGLE STREAM REQUEST': result})
+    test_results.update({'STREAM REQUEST': result})
 
 
 # -----------------------------------------------
@@ -149,6 +174,12 @@ def main():
     test_stream = test_stream_request()
     test_stream.join()
 
+    test_succes_video = test_success_video_request()
+    test_succes_video.join()
+
+    test_failed_video = test_failed_video_request()
+    test_failed_video.join()
+
 
 def print_results():
     global client
@@ -156,12 +187,11 @@ def print_results():
     print('TESTING SUMMARY:')
     test_results.update(client.result)
     for result in test_results:
+        right_padding = result.ljust(40, '.')
         if test_results[result]:
-            right_padding = result.ljust(40, '.')
-            if test_results[result]:
-                print(f'{right_padding}OK')
-            else:
-                print(f'{right_padding}FAILED')
+            print(f'{right_padding}OK')
+        else:
+            print(f'{right_padding}FAILED')
 
 
 if __name__ == "__main__":

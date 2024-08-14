@@ -29,8 +29,7 @@ class BaseBackendRequest:
         return reader, writer
 
     async def run(self):
-        reader, writer = await self.get_connection(self.request)
-        return await reader.read(self.buff_size)
+        raise NotImplementedError
 
 
 class StreamRequest(BaseBackendRequest):
@@ -116,3 +115,29 @@ class AproveUserRequest(BaseBackendRequest):
             logging.error('%s', error)
         await db_conn.commit()
         await self.get_connection(self.request)
+
+
+class VideoSuccessRequest(BaseBackendRequest):
+
+    def __init__(self):
+        builder = RequestBuilder().with_args(request_type='video_request',
+                                             video_name='test_video')
+        self.request = builder.build()
+
+    async def run(self):
+        self.reader, self.writer = await self.get_connection(self.request)
+        reply = await self.reader.read(self.buff_size)
+        if reply.decode() == 'success':
+            return True
+        return False
+
+
+class VideoFailedRequest(VideoSuccessRequest):
+
+    def __init__(self):
+        builder = RequestBuilder().with_args(request_type='video_request',
+                                             video_name='abrakadabra')
+        self.request = builder.build()
+
+    async def run(self):
+        return not await super().run()

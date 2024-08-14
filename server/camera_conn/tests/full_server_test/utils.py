@@ -3,6 +3,7 @@ import docker
 import sys
 import subprocess
 import time
+import psycopg
 from pathlib import Path
 base_dir = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(1, str(base_dir))
@@ -39,22 +40,36 @@ class TestDatabase:
 
     def prepare_db_container(self):
         env = {
-             'POSTGRES_DB': DB_NAME,
-             'POSTGRES_USER': DB_USER,
-             'POSTGRES_PASSWORD': DB_PASSWORD,
-             'POSTGRES_HOST': 'test',
-             'POSTGRES_PORT': DB_PORT,
-             'PGTZ': 'GMT+3',
-            }
+            'POSTGRES_DB': DB_NAME,
+            'POSTGRES_USER': DB_USER,
+            'POSTGRES_PASSWORD': DB_PASSWORD,
+            'POSTGRES_HOST': DB_HOST,
+            'POSTGRES_PORT': DB_PORT,
+            'PGTZ': 'GMT+3',
+        }
         self.container_name = 'test_db'
         self.client = docker.from_env()
         self.container = self.client.containers.run(
-                            'postgres:15',
-                            environment=env,
-                            name=self.container_name,
-                            ports={'5432/tcp': DB_PORT},
-                            detach=True)
-        time.sleep(2)
+            'postgres:15',
+            environment=env,
+            name=self.container_name,
+            ports={'5432/tcp': DB_PORT},
+            detach=True)
+
+        while True:
+            try:
+                conn = psycopg.connect(
+                    dbname=DB_NAME,
+                    user=DB_USER,
+                    password=DB_PASSWORD,
+                    host=DB_HOST,
+                    port=DB_PORT)
+                conn.close()
+            except psycopg.OperationalError:
+                time.sleep(0.1)
+            else:
+                break
+
         subprocess.run(f'python {base_dir.parent}/djbackend/manage.py migrate \
                        --database test_db',
                        shell=True)

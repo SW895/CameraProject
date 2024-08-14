@@ -106,8 +106,8 @@ class VideoStreamManager(BaseManager, metaclass=SingletonMeta):
                 await channel.task
             self.log.debug('Sending stream request')
             builder = RequestBuilder().with_args(
-                        request_type='stream_request',
-                        camera_name=channel.camera_name)
+                request_type='stream_request',
+                camera_name=channel.camera_name)
             request = builder.build()
             await self.send_request(request)
             self.log.debug('START COURUTINE')
@@ -216,7 +216,7 @@ class VideoRequestManager(BaseManager, metaclass=SingletonMeta):
                 current_request = self.requested_videos[requester.video_name]
             except KeyError:
                 current_request = await self.create_new_request(
-                                                requester.video_name)
+                    requester.video_name)
             else:
                 self.log.debug('Video request alredy created')
             self.log.debug('Add requester to list')
@@ -226,9 +226,9 @@ class VideoRequestManager(BaseManager, metaclass=SingletonMeta):
         self.requested_videos[video_name] = VideoRequest(video_name)
         current_request = self.requested_videos[video_name]
         current_request.task = self.loop.create_task(
-                                    current_request.process_request())
+            current_request.process_request())
         self.log.debug('Created video request')
-        builder = RequestBuilder().with_args(request_type='video',
+        builder = RequestBuilder().with_args(request_type='video_request',
                                              video_name=video_name)
         request = builder.build()
         await self.send_request(request)
@@ -340,7 +340,7 @@ class SignalCollector(BaseManager, metaclass=SingletonMeta):
                 await current_client.client.writer.wait_closed()
                 self.clients[client.client_id] = Client(client)
             self.clients[client.client_id].task = self.loop.create_task(
-                            self.clients[client.client_id].handle_signals())
+                self.clients[client.client_id].handle_signals())
 
     async def process_responses(self):  # get signals to transmit
         while True:

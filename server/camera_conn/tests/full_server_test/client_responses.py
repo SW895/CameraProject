@@ -85,7 +85,7 @@ class SignalConnection(BaseConnection):
             self.handlers.append(handler)
 
     async def run(self):
-        reader, writer = await self.get_connection(self.request)
+        reader, _ = await self.get_connection(self.request)
         while True:
             try:
                 data = await reader.read(self.buff_size)
@@ -112,7 +112,7 @@ class StreamConnection(BaseConnection):
     async def run(self, request):
         if request.request_type != 'stream_request':
             return
-        reader, writer = await self.get_connection(self.request)
+        _, writer = await self.get_connection(self.request)
         path = Path(__file__).resolve().parent
         with open(f"{path}/test.jpg", "rb") as image_file:
             encoded_image = base64.b64encode(image_file.read())
@@ -150,3 +150,24 @@ class UserAproveResponse(BaseConnection):
         else:
             result = False
         return {request.request_type.upper().replace('_', ' '): result}
+
+
+class VideoResponse(BaseConnection):
+
+    def __init__(self):
+        path = Path(__file__).resolve().parent
+        with open(f"{path}/test.jpg", "rb") as video_file:
+            self.file = video_file.read()
+            video_size = len(self.file)
+        builder = RequestBuilder().with_args(request_type='video_response',
+                                             video_name='test_video',
+                                             video_size=video_size)
+        self.request = builder.build()
+
+    async def run(self, request):
+        if request.request_type != 'video_request':
+            return
+        if request.video_name == 'test_video':
+            reader, writer = await self.get_connection(self.request)
+            writer.write(self.file)
+            await writer.drain()

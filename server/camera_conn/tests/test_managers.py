@@ -30,11 +30,11 @@ def videostream_manager(mocker, stream_requester, stream_response):
     manager.get_active_camera_list \
         .return_value = [('test_camera', 'test_user')]
     manager.requesters.get.side_effect = ErrorAfter(
-                                            limit=1,
-                                            return_value=stream_requester)
+        limit=1,
+        return_value=stream_requester)
     manager.responses.get.side_effect = ErrorAfter(
-                                            limit=1,
-                                            return_value=stream_response)
+        limit=1,
+        return_value=stream_response)
     return manager
 
 
@@ -368,14 +368,14 @@ async def test_send_response(video_request_object,
 def signal_collector(mocker, client_request, custom_signal):
     manager = SignalCollector()
     manager.loop = mocker.AsyncMock()
-    manager.requesters = mocker.AsyncMock()
-    manager.requesters.get.side_effect = ErrorAfter(
-                                            limit=1,
-                                            return_value=client_request)
-    manager.responses = mocker.AsyncMock()
-    manager.responses.get.side_effect = ErrorAfter(
-                                            limit=1,
-                                            return_value=custom_signal)
+    manager.client_queue = mocker.AsyncMock()
+    manager.client_queue.get.side_effect = ErrorAfter(
+        limit=1,
+        return_value=client_request)
+    manager.signal_queue = mocker.AsyncMock()
+    manager.signal_queue.get.side_effect = ErrorAfter(
+        limit=1,
+        return_value=custom_signal)
     return manager
 
 
@@ -431,8 +431,8 @@ def client(client_request, custom_signal, mocker):
     client = Client(client_request)
     client.signal_queue = mocker.AsyncMock()
     client.signal_queue.get.side_effect = ErrorAfter(
-                                            limit=1,
-                                            return_value=custom_signal)
+        limit=1,
+        return_value=custom_signal)
     return client
 
 

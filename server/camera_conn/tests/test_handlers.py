@@ -59,7 +59,7 @@ async def test_put_connection_to_signal_collector(signal_handler,
                                                   signal_request):
     result = await signal_handler.handle(signal_request)
     assert result is True
-    signal_handler.manager.requesters.put.assert_called_with(signal_request)
+    signal_handler.manager.client_queue.put.assert_called_with(signal_request)
 
 
 # -----------------------------------------------
@@ -376,7 +376,7 @@ def aprove_request(mocker):
 @pytest.fixture
 def aprove_user_request_handler(mocker):
     handler = AproveUserRequestHandler
-    handler.signal.responses = mocker.AsyncMock()
+    handler.signal.signal_queue = mocker.AsyncMock()
     return handler
 
 
@@ -396,7 +396,7 @@ async def test_aprove_user_request_handler_request(
 ):
     result = await aprove_user_request_handler.handle(aprove_request)
     aprove_user_request_handler.signal \
-        .responses \
+        .signal_queue \
         .put \
         .assert_called_with(aprove_request)
     assert result is True

@@ -2,7 +2,8 @@ import asyncio
 import logging
 import json
 import os
-from settings import SOCKET_BUFF_SIZE
+from settings import (SOCKET_BUFF_SIZE,
+                      GLOBAL_TEST)
 from db import (NewVideoRecord,
                 CameraRecord,
                 UserRecord)
@@ -138,6 +139,8 @@ class VideoResponseHandler(BaseHandler):
     buff_size = SOCKET_BUFF_SIZE
 
     def save_file(name, data):
+        if GLOBAL_TEST:
+            return
         with open(name, "wb") as video:
             video.write(data)
 

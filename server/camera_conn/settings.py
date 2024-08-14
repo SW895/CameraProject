@@ -3,12 +3,12 @@ import logging
 
 
 logging.basicConfig(
-    level=logging.ERROR,
+    level=logging.CRITICAL,
     format="%(name)s | %(levelname)s | %(asctime)s | %(message)s",
     datefmt="%Y-%m-%dT%H:%M:%S",)
 
 DEBUG = bool(os.environ.get('DEBUG', 1))
-GLOBAL_TEST = True
+GLOBAL_TEST = bool(os.environ.get('GLOBAL_TEST', 1))
 STREAM_SOURCE_TIMEOUT = int(os.environ.get('STREAM_SOURCE_TIMEOUT', '5'))
 VIDEO_REQUEST_TIMEOUT = int(os.environ.get('VIDEO_REQUEST_TIMEOUT', '5'))
 GARB_COLLECTOR_TIMEOUT = int(os.environ.get('GARB_COLLECTOR_TIMEOUT', '10'))

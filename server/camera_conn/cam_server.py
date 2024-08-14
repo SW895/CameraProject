@@ -32,7 +32,7 @@ class AsyncServer:
                                              reader=reader) \
                                   .with_bytes(data)
         request = builder.build()
-        self.log.info('Request type accepted. Sending reply')
+        self.log.info('Request received. Sending reply')
         reply = 'accepted'
         try:
             request.writer.write(reply.encode())
