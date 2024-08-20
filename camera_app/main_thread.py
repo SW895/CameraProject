@@ -15,7 +15,7 @@ import threading
 from pathlib import Path
 from utils import check_thread, new_thread, get_connection
 from ultralytics import YOLO
-from datetime import date, datetime
+from datetime import date
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
