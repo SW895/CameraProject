@@ -24,8 +24,15 @@ class ConnectionClient(ConnectionMixin, QObject):
         for handler in args:
             self.handlers.append(handler)
 
+    def run_client(self):
+        task = self.loop.create_task(self._run_client())
+        self.background_tasks.add(task)
+        task.add_done_callback(self.background_tasks.discard)
+        self.loop.run_forever()
+
     async def _run_client(self):
         await self.register_client()
+        await self.get_server_events()
 
     async def get_server_events(self):
         while True:
