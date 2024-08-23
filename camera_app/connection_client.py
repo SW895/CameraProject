@@ -6,8 +6,8 @@ from settings import (
     CAMERA_LIST,
     RECONNECTION_TIMEOUT
 )
-from utils import RequestBuilder
-from connection_handlers import ConnectionMixin
+from request_builder import RequestBuilder
+from utils import ConnectionMixin
 from PyQt6.QtCore import QObject
 
 

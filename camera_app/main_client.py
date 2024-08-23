@@ -50,6 +50,7 @@ class MainWindow(QMainWindow):
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
         lay = QVBoxLayout(self.central_widget)
+        # For camera in camera_list: Create label -> to label dict
         self.label = QLabel(self)
         lay.addWidget(self.label)
 
@@ -64,7 +65,16 @@ class MainWindow(QMainWindow):
         self.worker_thread.start()
         self.show()
 
-    @pyqtSlot(QImage)
+    def init_network_thread(self):
+        pass
+
+    def init_camera_workers(self):
+        pass
+
+    def init_widgets(self):
+        pass
+
+    @pyqtSlot(QImage)  # send tuple (camera_name, QImage)
     def setFrame(self, frame):
         self.label.setPixmap(QPixmap.fromImage(frame))
 

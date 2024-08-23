@@ -1,18 +1,15 @@
-import asyncio
 import logging
 import json
 import smtplib
 import ssl
 import os
 import aiofiles
-from utils import RequestBuilder
+from streaming import VideoStreamManager
+from request_builder import RequestBuilder
+from utils import ConnectionMixin
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from settings import (
-    SOKCET_BUFF_SIZE,
-    SERVER_HOST,
-    SERVER_PORT,
-    GET_SERVER_EVENTS_TIMEOUT,
     USER_LIST,
     APROVE_ALL,
     EMAIL_BACKEND,
@@ -23,35 +20,11 @@ from settings import (
 )
 
 
-class ConnectionMixin:
-
-    buff_size = SOKCET_BUFF_SIZE
-    host = SERVER_HOST
-    port = SERVER_PORT
-    connection_timeout = GET_SERVER_EVENTS_TIMEOUT
-    loop = asyncio.new_event_loop()
-    background_tasks = set()
-
-    async def connect_to_server(self, request):
-        reader, writer = await asyncio.open_connection(
-            self.host, self.port)
-        try:
-            writer.write(request.serialize().encode())
-            await writer.drain()
-        except (ConnectionResetError, BrokenPipeError):
-            return None, None
-
-        reply = await reader.read(self.buff_size)
-        if reply.decode() == 'accepted':
-            return reader, writer
-        return None, None
-
-
 class BaseClientHandler(ConnectionMixin):
 
     async def handle(self, request):
         if request.request_type != self.request_type:
-            return None
+            return False
         task = self.loop.create_task(self.process_request(request))
         self.background_tasks.add(task)
         task.add_done_callback(self.background_tasks.discard)
@@ -203,6 +176,7 @@ class VideoRequestHandler(BaseClientHandler):
 class StreamHandler(BaseClientHandler):
 
     request_type = 'stream_request'
+    manager = VideoStreamManager()
 
     async def process_request(self, request):
-        pass
+        await self.manager.requesters.put(request)
