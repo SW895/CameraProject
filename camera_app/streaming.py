@@ -7,13 +7,6 @@ from utils import (
 )
 
 
-class WorkerObject:
-
-    def __init__(self, camera_worker, channel):
-        self.camera_worker = camera_worker
-        self.channel = channel
-
-
 class VideoStreamManager(metaclass=Singleton):
 
     requesters = asyncio.Queue()
@@ -24,10 +17,10 @@ class VideoStreamManager(metaclass=Singleton):
         if camera_list:
             for camera in camera_list:
                 self.cameras.update(
-                    {camera: WorkerObject(camera_worker=camera,
-                                          channel=VideoStream(camera.name))})
+                    {camera: VideoStream(camera_worker=camera_list[camera],
+                                         camera_name=camera)})
 
-    async def process_requesters(self):
+    async def run_manager(self):
         while True:
             self.log.debug('Waiting for stream requester')
             try:
@@ -43,30 +36,32 @@ class VideoStreamManager(metaclass=Singleton):
                 continue
 
             self.log.debug('Starting channel')
-            await self.run_channel(current_channel.camera_worker.frame_source)
+            await self.run_channel(current_channel)
 
-    async def run_channel(self, camera):
-        if camera.task:
+    async def run_channel(self, current_channel):
+        if current_channel.task:
             self.log.debug('Cancelling task')
-            camera.task.cancel()
-            await camera.task
+            current_channel.task.cancel()
+            await current_channel.task
 
         self.log.debug('START COURUTINE')
-        camera.task = self.loop.create_task(camera.stream_video())
+        current_channel.task = self.loop.create_task(
+            current_channel.stream_video())
 
 
 class VideoStream(ConnectionMixin):
 
     task = None
 
-    def _init__(self, camera_name):
+    def _init__(self, camera_worker, camera_name):
+        self.camera_worker = camera_worker
         self.camera_name = camera_name
         self.log = logging.getLogger(self.camera_name)
         builder = RequestBuilder().with_args(request_type='stream_source',
                                              camera_name=self.camera_name)
         self.request = builder.build()
 
-    async def stream_video(self, frame_source):
+    async def stream_video(self):
         self.log.debug('Connecting to server')
         reader, writer = self.connect_to_server(self.request)
         if not writer:
@@ -75,12 +70,13 @@ class VideoStream(ConnectionMixin):
             self.log.debug('Connected to server. Stream begin')
         while writer:
             try:
-                encoded_frame = await frame_source.get()
+                encoded_frame = await \
+                    self.camera_worker.videostream_frame.get()
             except asyncio.CancelledError:
-                writer.close
+                writer.close()
                 await writer.wait_closed()
                 break
-            frame_source.task_done()
+            self.camera_worker.videostream_frame.task_done()
             try:
                 writer.write(encoded_frame)
                 await writer.drain()

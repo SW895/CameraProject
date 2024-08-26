@@ -22,14 +22,16 @@ from settings import (
 
 class BaseClientHandler(ConnectionMixin):
 
-    async def handle(self, request):
+    @classmethod
+    async def handle(self, request, loop):
         if request.request_type != self.request_type:
             return False
-        task = self.loop.create_task(self.process_request(request))
+        task = loop.create_task(self.process_request(request))
         self.background_tasks.add(task)
         task.add_done_callback(self.background_tasks.discard)
         return True
 
+    @classmethod
     async def process_request(self, request):
         raise NotImplementedError
 
@@ -39,6 +41,7 @@ class AproveUserHandler(BaseClientHandler):
     request_type = 'aprove_user_request'
     log = logging.getLogger('Aprove user request handler')
 
+    @classmethod
     async def process_request(self, request):
         self.log.info('Handler started')
         username = request.username
@@ -74,6 +77,7 @@ class AproveUserHandler(BaseClientHandler):
                 await writer.wait_closed()
 
     # TODO MAKE ASYNC
+    @classmethod
     def send_email(self, username, email, result):
         message = MIMEMultipart('alternative')
 
@@ -130,6 +134,7 @@ class VideoRequestHandler(BaseClientHandler):
     request_type = 'video_request'
     log = logging.getLogger('Handler video request')
 
+    @classmethod
     async def process_request(self, request):
         self.log.info('Handler started')
         video_bytes = b""
@@ -178,5 +183,6 @@ class StreamHandler(BaseClientHandler):
     request_type = 'stream_request'
     manager = VideoStreamManager()
 
+    @classmethod
     async def process_request(self, request):
         await self.manager.requesters.put(request)

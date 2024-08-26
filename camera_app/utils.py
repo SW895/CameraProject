@@ -1,4 +1,3 @@
-import threading
 import logging
 import asyncio
 from settings import (
@@ -7,44 +6,6 @@ from settings import (
     SERVER_PORT,
     GET_SERVER_EVENTS_TIMEOUT,
 )
-
-
-def check_thread(target_function):
-
-    def inner(*args, **kwargs):
-
-        thread_running = False
-
-        for th in threading.enumerate():
-            if th.name == target_function.__name__:
-                thread_running = True
-                break
-
-        if not thread_running:
-            logging.info('Starting thread %s', target_function.__name__)
-            thread = threading.Thread(target=target_function,
-                                      args=args,
-                                      name=target_function.__name__)
-            thread.start()
-            return thread
-        else:
-            logging.warning('Thread %s already running',
-                            target_function.__name__)
-
-    return inner
-
-
-def new_thread(target_function):
-
-    def inner(*args, **kwargs):
-
-        thread = threading.Thread(target=target_function,
-                                  args=args,
-                                  kwargs=kwargs)
-        thread.start()
-        return thread
-
-    return inner
 
 
 class Singleton(type):
@@ -67,8 +28,13 @@ class ConnectionMixin:
     background_tasks = set()
 
     async def connect_to_server(self, request):
-        reader, writer = await asyncio.open_connection(
-            self.host, self.port)
+        try:
+            reader, writer = await asyncio.open_connection(
+                self.host, self.port)
+        except ConnectionRefusedError:
+            logging.error('Failed to connect to server')
+            return None, None
+
         try:
             writer.write(request.serialize().encode())
             await writer.drain()
