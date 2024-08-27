@@ -60,8 +60,8 @@ EMAIL_PORT = 587
 EMAIL_BACKEND = 'smtp.gmail.com'
 
 # USER LIST
-USER_LIST = 'moreau'
-APROVE_ALL = True
+USER_LIST = ['moreau', 'test_user']
+APROVE_ALL = False
 
 # CAMERA LIST
 cam_list = {'test_camera': 0}
