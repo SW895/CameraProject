@@ -106,21 +106,17 @@ class ConnectionClient(ConnectionMixin, QObject):
 
     async def get_server_events(self):
         while True:
-            self.log.debug('CONNECTING TO READ SERVER EVENTS')
+            self.log.debug('GETTING SERVER EVENTS')
             reader, writer = await self.connect_to_server(self.request)
             if writer:
-                messages = b""
-                while True:
-                    self.log.info('Waiting for a message')
-                    data = await reader.read(self.buff_size)
-                    if not data:
-                        break
-                    messages += data
+                messages = await self.get_messages(reader)
                 self.log.debug('Messages received')
                 msg_list = messages.decode().split('\n')
                 self.log.debug('SERVER EVENTS RECEIVED: %s', msg_list)
                 self.connection_status.emit(True)
                 for message in msg_list:
+                    if not message:
+                        continue
                     builder = RequestBuilder().with_args(**json.loads(message))
                     request = builder.build()
                     for handler in self.handlers:
@@ -135,3 +131,13 @@ class ConnectionClient(ConnectionMixin, QObject):
                 await asyncio.sleep(GET_SERVER_EVENTS_TIMEOUT)
             except asyncio.CancelledError:
                 return
+
+    async def get_messages(self, reader):
+        messages = b""
+        while True:
+            self.log.info('Waiting for a message')
+            data = await reader.read(self.buff_size)
+            if not data:
+                break
+            messages += data
+        return messages

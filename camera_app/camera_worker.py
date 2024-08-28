@@ -96,7 +96,6 @@ class CameraWorker(QObject):
                     self.send_frame_to_stream(frame)
                     self.send_frame_to_GUI(frame)
 
-                    cv2.imshow("YOLOv8 Inference", frame)
                     if cv2.waitKey(1) & 0xFF == ord("q"):
                         break
                 else:
@@ -104,7 +103,6 @@ class CameraWorker(QObject):
 
             log.debug('Thread ended')
             cap.release()
-            cv2.destroyAllWindows()
 
     def get_model(self):
         self.model = YOLO(MODEL_PATH)
