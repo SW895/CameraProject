@@ -37,6 +37,7 @@ class ConnectionClient(ConnectionMixin, QObject):
         self.log.debug('Running connection client')
         self.loop = asyncio.new_event_loop()
         self.log.debug('Event loop created')
+        self.stream_manager.set_event_loop(self.loop)
         self.background_tasks.add(
             self.loop.create_task(self.register_client()))
         self.background_tasks.add(

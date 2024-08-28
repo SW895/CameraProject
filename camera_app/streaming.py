@@ -20,6 +20,9 @@ class VideoStreamManager(metaclass=Singleton):
                     {camera: VideoStream(camera_worker=camera_list[camera],
                                          camera_name=camera)})
 
+    def set_event_loop(self, loop):
+        self.loop = loop
+
     async def run_manager(self):
         while True:
             self.log.debug('Waiting for stream requester')
@@ -53,7 +56,7 @@ class VideoStream(ConnectionMixin):
 
     task = None
 
-    def _init__(self, camera_worker, camera_name):
+    def __init__(self, camera_worker, camera_name):
         self.camera_worker = camera_worker
         self.camera_name = camera_name
         self.log = logging.getLogger(self.camera_name)
@@ -63,7 +66,7 @@ class VideoStream(ConnectionMixin):
 
     async def stream_video(self):
         self.log.debug('Connecting to server')
-        reader, writer = self.connect_to_server(self.request)
+        reader, writer = await self.connect_to_server(self.request)
         if not writer:
             self.log.error('Failed to connect to server')
         else:
