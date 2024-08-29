@@ -13,12 +13,13 @@ class VideoStreamManager(metaclass=Singleton):
     cameras = {}
     log = logging.getLogger('Stream manager')
 
-    def __init__(self, camera_list=None):
-        if camera_list:
-            for camera in camera_list:
-                self.cameras.update(
-                    {camera: VideoStream(camera_worker=camera_list[camera],
-                                         camera_name=camera)})
+    def update_camera_list(self, camera_list):
+        self.log.debug('ZZZZZZZZZZZ %s', camera_list)
+        for camera in camera_list:
+            self.log.debug('XXXXXX %s', camera)
+            self.cameras.update(
+                {camera: VideoStream(camera_worker=camera_list[camera],
+                                     camera_name=camera)})
 
     def set_event_loop(self, loop):
         self.loop = loop
@@ -31,7 +32,9 @@ class VideoStreamManager(metaclass=Singleton):
             except asyncio.CancelledError:
                 break
             self.requesters.task_done()
-
+            self.log.debug('Get requester %s, %s',
+                           requester.camera_name,
+                           self.cameras)
             try:
                 current_channel = self.cameras[requester.camera_name]
             except KeyError:
@@ -60,7 +63,7 @@ class VideoStream(ConnectionMixin):
         self.camera_worker = camera_worker
         self.camera_name = camera_name
         self.log = logging.getLogger(self.camera_name)
-        builder = RequestBuilder().with_args(request_type='stream_source',
+        builder = RequestBuilder().with_args(request_type='stream_response',
                                              camera_name=self.camera_name)
         self.request = builder.build()
 

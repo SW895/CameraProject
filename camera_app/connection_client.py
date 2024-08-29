@@ -24,7 +24,9 @@ class ConnectionClient(ConnectionMixin, QObject):
     def __init__(self, camera_workers_list):
         super().__init__()
         self.log.debug('Init connection client')
-        self.stream_manager = VideoStreamManager(camera_workers_list)
+        self.log.debug('CAMERA WORKES %s', camera_workers_list)
+        self.camera_list = camera_workers_list
+        self.stream_manager = VideoStreamManager()
         builder = RequestBuilder().with_args(request_type='signal')
         self.request = builder.build()
 
@@ -38,6 +40,7 @@ class ConnectionClient(ConnectionMixin, QObject):
         self.loop = asyncio.new_event_loop()
         self.log.debug('Event loop created')
         self.stream_manager.set_event_loop(self.loop)
+        self.stream_manager.update_camera_list(self.camera_list)
         self.background_tasks.add(
             self.loop.create_task(self.register_client()))
         self.background_tasks.add(
@@ -97,30 +100,33 @@ class ConnectionClient(ConnectionMixin, QObject):
                 self.log.error('Connection Error')
             else:
                 reply = await reader.read(self.buff_size)
-                response = json.loads(reply.decode())
-                if response['status'] == 'success':
-                    return True
+                if reply:
+                    response = json.loads(reply.decode())
+                    if response['status'] == 'success':
+                        return True
                 writer.close()
                 await writer.wait_closed()
+                self.log.warning('Failed to register user')
         return False
 
     async def get_server_events(self):
         while True:
-            self.log.debug('GETTING SERVER EVENTS')
+            # self.log.debug('GETTING SERVER EVENTS')
             reader, writer = await self.connect_to_server(self.request)
             if writer:
-                messages = await self.get_messages(reader)
-                self.log.debug('Messages received')
+                messages = await self.get_messages(reader)                
                 msg_list = messages.decode().split('\n')
-                self.log.debug('SERVER EVENTS RECEIVED: %s', msg_list)
+                if len(messages) > 10:
+                    self.log.debug('SERVER EVENTS RECEIVED: %s', msg_list)
                 self.connection_status.emit(True)
                 for message in msg_list:
                     if not message:
                         continue
                     builder = RequestBuilder().with_args(**json.loads(message))
                     request = builder.build()
+                    self.log.debug('XXX %s', self.handlers)
                     for handler in self.handlers:
-                        result = await handler.handle(request, self.loop)
+                        result = await handler().handle(request, self.loop)
                         if result:
                             break
                     else:
@@ -135,7 +141,7 @@ class ConnectionClient(ConnectionMixin, QObject):
     async def get_messages(self, reader):
         messages = b""
         while True:
-            self.log.info('Waiting for a message')
+            # self.log.info('Waiting for a message')
             data = await reader.read(self.buff_size)
             if not data:
                 break

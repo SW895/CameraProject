@@ -3,6 +3,7 @@ import cv2
 # import json
 import base64
 import struct
+import threading
 # import numpy
 import logging
 import asyncio
@@ -19,6 +20,7 @@ from PyQt6.QtGui import QImage
 from settings import (
     BUFF_SIZE,
     MODEL_PATH,
+    CONFIDENCE,
     # TIMEZONE,
 )
 
@@ -28,10 +30,14 @@ class CameraWorker(QObject):
     videostream_frame = asyncio.Queue(maxsize=1)
     changePixmap = pyqtSignal(QImage, str)
     finished = pyqtSignal()
-    _detection = {'car_det': False,
-                  'cat_det': False,
-                  'chiken_det': False,
-                  'human_det': False}
+    _detected_obj = {'car_det': False,
+                     'cat_det': False,
+                     'chiken_det': False,
+                     'human_det': False}
+    _lock = threading.Lock()
+    _processing_video = threading.Event()
+    _detection = threading.Event()
+    _processing_thread_ended = threading.Event()
 
     def __init__(self, camera_name, camera_source):
         super().__init__()
@@ -39,73 +45,73 @@ class CameraWorker(QObject):
         self.camera_source = camera_source
         self.log = logging.getLogger(self.camera_name)
 
+    def processing_video(self):
+        return self._processing_video.is_set()
+
+    def stop_video_processing(self):
+        self._processing_video.clear()
+
+    def start_video_processing(self):
+        self._processing_video.set()
+
+    def get_cap(self):
+        self.cap = cv2.VideoCapture(self.camera_source)
+
     def set_loop(self, loop):
-        self.loop = loop
+        self._loop = loop
 
     def send_frame_to_stream(self, frame):
         if self.videostream_frame.qsize() == 0:
             encoded_frame = self.encode(frame)
-            try:
-                self.loop.call_soon_threadsafe(
-                    self.videostream_frame.put_nowait,
-                    encoded_frame
-                )
-            except asyncio.QueueFull:
-                self.log.debug('Frame queue full')
+            self._loop.call_soon_threadsafe(
+                self.videostream_frame.put_nowait, encoded_frame)
 
     def send_frame_to_GUI(self, frame):
         converted_frame = self.convert_to_QImage(frame)
         self.changePixmap.emit(converted_frame, self.camera_name)
 
     def detect_objects(self):
-        log = logging.getLogger(self.camera_name)
-        log.info('CAMERA SOURCE %s', self.camera_source)
-        cap = cv2.VideoCapture(self.camera_source)
-        self.get_model()
+        self.log.info('CAMERA SOURCE %s', self.camera_source)
         frames_to_save = []
         if not self.model:
-            log.debug('Get model')
-            while cap.isOpened():
-                success, frame = cap.read()
-                if success:
-                    results = self.model(frame, conf=0.0001)
-                    if results[0]:
-                        self.update_detection(results)
-                        self._obj_detected = True
-                        self._counter = 0
-                        log.debug('%s', self._detection)
-                    elif self._obj_detected:
-                        self._counter += 1
+            raise OSError
+        while self.cap.isOpened() and self.processing_video():
+            success, frame = self.cap.read()
+            if success:
+                results = self.model(frame, conf=CONFIDENCE)
+                if results[0]:
+                    self.update_detection(results)
+                    self._obj_detected = True
+                    self._counter = 0
+                    self.log.debug('%s', self._detection)
+                elif self._obj_detected:
+                    self._counter += 1
 
-                    if self._counter >= self.no_detection_time:
-                        log.debug('Reset counter and detection dict')
-                        self.reset_detection_and_counter()
+                if self._counter >= self.no_detection_time:
+                    self.log.debug('Reset counter and detection dict')
+                    self.reset_detection_and_counter()
 
-                    if self._obj_detected and \
-                       (len(frames_to_save) < BUFF_SIZE):
-                        frames_to_save.append(frame)
-                    elif self._obj_detected:
-                        log.debug('Save video')
-                        current_time = datetime.now(tz=self.timezone)
-                        self.save_video(frames_to_save,
-                                        self._detection,
-                                        current_time)
-                        self.reset_detection_and_counter()
-                        frames_to_save = []
+                if self._obj_detected and (len(frames_to_save) < BUFF_SIZE):
+                    frames_to_save.append(frame)
+                elif self._obj_detected:
+                    self.log.debug('Save video')
+                    current_time = datetime.now(tz=self.timezone)
+                    self.save_video(frames_to_save,
+                                    self._detection,
+                                    current_time)
+                    self.reset_detection_and_counter()
+                    frames_to_save = []
 
-                    self.send_frame_to_stream(frame)
-                    self.send_frame_to_GUI(frame)
-
-                    if cv2.waitKey(1) & 0xFF == ord("q"):
-                        break
-                else:
-                    break
-
-            log.debug('Thread ended')
-            cap.release()
+                self.send_frame_to_stream(frame)
+                self.send_frame_to_GUI(frame)
+            else:
+                break
 
     def get_model(self):
-        self.model = YOLO(MODEL_PATH)
+        try:
+            self.model = YOLO(MODEL_PATH)
+        except OSError:
+            self.log.error('NO WEIGHTS')
 
     def update_detection(self, results):
         for r in results:
@@ -122,18 +128,15 @@ class CameraWorker(QObject):
         self._obj_detected = False
 
     def no_detection(self):
-        log = logging.getLogger(self.camera_name)
-        log.info('CAMERA SOURCE %s', self.camera_source)
-        cap = cv2.VideoCapture(self.camera_source)
-        while cap.isOpened():
-            success, frame = cap.read()
+        self.log.info('CAMERA SOURCE %s', self.camera_source)
+        while self.cap.isOpened() and self.processing_video():
+            success, frame = self.cap.read()
             if success:
                 self.send_frame_to_stream(frame)
                 self.send_frame_to_GUI(frame)
             else:
                 break
-        log.debug('Thread ended')
-        cap.release()
+        self.log.debug('Thread ended')
 
     def convert_to_QImage(self, frame):
         rgbImage = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -156,6 +159,7 @@ class CameraWorker(QObject):
         # if self.detection:
         #    self.detect_objects()
         # else:
+        self.start_video_processing()
         self.no_detection()
 
     """

@@ -328,17 +328,12 @@ class SignalCollector(BaseManager, metaclass=SingletonMeta):
             except asyncio.CancelledError:
                 break
 
-            try:
-                current_client = self.clients[client.client_id]
-            except KeyError:
-                self.log.debug('Creating new client')
-                current_client = \
-                    self.clients[client.client_id] = Client(client)
-            else:
-                self.log.debug('Current client already exists. Updating..')
-                current_client.client.writer.close()
-                await current_client.client.writer.wait_closed()
+            if not (client.client_id in self.clients):
+                self.log.debug('Creating client: %s', client.client_id)
                 self.clients[client.client_id] = Client(client)
+            else:
+                self.clients[client.client_id].update_connection(client)
+                self.log.debug('Client exists')
             self.clients[client.client_id].task = self.loop.create_task(
                 self.clients[client.client_id].handle_signals())
 
@@ -358,19 +353,6 @@ class SignalCollector(BaseManager, metaclass=SingletonMeta):
                 self.log.debug('Put signal to client %s', signal.client_id)
                 await current_client.signal_queue.put(signal)
 
-    async def garb_collector(self):
-        while True:
-            try:
-                await asyncio.sleep(self.garb_collector_timeout)
-                dead_client_list = []
-                for client in self.clients:
-                    if self.clients[client].dead:
-                        dead_client_list.append(client)
-                for client in dead_client_list:
-                    del self.clients[client]
-            except asyncio.CancelledError:
-                break
-
 
 class Client:
 
@@ -380,6 +362,8 @@ class Client:
 
     def __init__(self, client):
         self.client = client
+        self.writer = client.writer
+        self.reader = client.reader
         self.log = logging.getLogger(client.client_id)
 
     def __eq__(self, other):
@@ -390,25 +374,29 @@ class Client:
             return True
         return False
 
+    def update_connection(self, client):
+        self.writer = client.writer
+        self.reader = client.reader
+
     async def handle_signals(self):
-        while True:
-            self.log.info('Waiting for new signal')
+        while self.signal_queue.qsize() > 0:
+            self.log.info('Gets signal from queue')
             try:
                 signal = await self.signal_queue.get()
             except asyncio.CancelledError:
                 self.log.debug('Courutine cancelled')
                 break
             self.signal_queue.task_done()
-            self.log.info('Get signal:%s', signal.request_type)
             self.log.info('Sending signal')
             try:
-                self.client.writer.write(signal.serialize().encode())
+                self.writer.write(signal.serialize().encode())
+                await self.writer.drain()
             except Exception as error:
                 self.log.error('Connection to client lost, %s', error)
                 break
-            else:
-                await self.client.writer.drain()
 
+        self.log.info('No more new events')
+        self.writer.close()
+        await self.writer.wait_closed()
+        self.log.debug('Session ended')
         self.task = None
-        self.client.writer.close()
-        await self.client.writer.wait_closed()

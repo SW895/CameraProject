@@ -3,12 +3,12 @@ import logging
 
 
 logging.basicConfig(
-    level=logging.CRITICAL,
+    level=logging.DEBUG,
     format="%(name)s | %(levelname)s | %(asctime)s | %(message)s",
     datefmt="%Y-%m-%dT%H:%M:%S",)
 
-DEBUG = bool(os.environ.get('DEBUG', 1))
-GLOBAL_TEST = bool(os.environ.get('GLOBAL_TEST', 1))
+DEBUG = bool(int(os.environ.get('DEBUG', 0)))
+GLOBAL_TEST = bool(int(os.environ.get('GLOBAL_TEST', 0)))
 STREAM_SOURCE_TIMEOUT = int(os.environ.get('STREAM_SOURCE_TIMEOUT', '5'))
 VIDEO_REQUEST_TIMEOUT = int(os.environ.get('VIDEO_REQUEST_TIMEOUT', '5'))
 GARB_COLLECTOR_TIMEOUT = int(os.environ.get('GARB_COLLECTOR_TIMEOUT', '10'))
@@ -42,4 +42,4 @@ INTERNAL_HOST = os.environ.get('INTERNAL_HOST', '127.0.0.1')
 INTERNAL_PORT = int(os.environ.get('INTERNAL_PORT', 20900))
 INTERNAL_CONN_QUEUE = int(os.environ.get('INTERNAL_CONNECTION_QUEUE', 10))
 
-SOCKET_BUFF_SIZE = int(os.environ.get('SOCKET_BUFF_SIZE', '65536'))
+SOCKET_BUFF_SIZE = int(os.environ.get('SOCKET_BUFF_SIZE', 65536))

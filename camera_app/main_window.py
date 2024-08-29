@@ -93,12 +93,17 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     def event_loop_created(self):
         self.workers_set_loop()
+        self.workers_get_cap()
         self.start_workers()
         self.show()
 
     def workers_set_loop(self):
         for worker in self.camera_workers:
             self.camera_workers[worker].set_loop(self.client.loop)
+
+    def workers_get_cap(self):
+        for worker in self.camera_workers:
+            self.camera_workers[worker].get_cap()
 
     def start_workers(self):
         for camera_name in self.camera_threads:

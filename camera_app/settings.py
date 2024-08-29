@@ -71,3 +71,4 @@ for camera in cam_list:
 
 # DETECTION SETTINGS
 BUFF_SIZE = 100
+CONFIDENCE = 0.0001
