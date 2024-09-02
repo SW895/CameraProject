@@ -32,7 +32,7 @@ class ConnectionMixin:
             reader, writer = await asyncio.open_connection(
                 self.host, self.port)
         except ConnectionRefusedError:
-            logging.error('Failed to connect to server')
+            #logging.error('Failed to connect to server')
             return None, None
 
         try:

@@ -14,9 +14,7 @@ class VideoStreamManager(metaclass=Singleton):
     log = logging.getLogger('Stream manager')
 
     def update_camera_list(self, camera_list):
-        self.log.debug('ZZZZZZZZZZZ %s', camera_list)
         for camera in camera_list:
-            self.log.debug('XXXXXX %s', camera)
             self.cameras.update(
                 {camera: VideoStream(camera_worker=camera_list[camera],
                                      camera_name=camera)})

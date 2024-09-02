@@ -5,14 +5,18 @@ from PyQt6.QtWidgets import (
     QGridLayout,
     QMainWindow,
     QLabel,
+    QPushButton
 )
 from PyQt6.QtCore import (
     QThread,
-    # pyqtSignal,
+    pyqtSignal,
     pyqtSlot,
     Qt,
 )
-from PyQt6.QtGui import QPixmap, QImage
+from PyQt6.QtGui import (
+    QPixmap,
+    QImage
+)
 from connection_client import ConnectionClient
 from connection_handlers import (
     AproveUserHandler,
@@ -30,6 +34,9 @@ class MainWindow(QMainWindow):
     camera_labels = {}
     camera_workers = {}
     camera_threads = {}
+    buttons = {}
+    enable_detection = pyqtSignal()
+    disable_detection = pyqtSignal()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -59,9 +66,21 @@ class MainWindow(QMainWindow):
                 column,
                 alignment=Qt.AlignmentFlag.AlignCenter
             )
+
+            current_button = QPushButton('Enable Detection')
+            self.buttons.update({camera: current_button})
+            current_button.setCheckable(True)
+            current_button.toggle()
+            current_button.clicked.connect(self.enable_det)
+            self.central_widget_layout.addWidget(
+                current_button,
+                row + 1,
+                column,
+                alignment=Qt.AlignmentFlag.AlignCenter
+            )
             if column > 4:
                 column = 0
-                row += 1
+                row += 2
 
     def init_network_thread(self):
         self.client = ConnectionClient(camera_workers_list=self.camera_workers)
@@ -86,14 +105,16 @@ class MainWindow(QMainWindow):
             self.camera_threads.update({camera: current_thread})
             current_worker.moveToThread(current_thread)
             current_worker.finished.connect(current_thread.quit)
-            current_thread.started.connect(current_worker.run_worker)
+            current_thread.started.connect(current_worker.run_camera)
             current_thread.finished.connect(app.exit)
             current_worker.changePixmap.connect(self.setFrame)
+            self.enable_detection.connect(current_worker.enable_detection)
+            self.disable_detection.connect(current_worker.disable_detection)
 
     @pyqtSlot()
     def event_loop_created(self):
         self.workers_set_loop()
-        self.workers_get_cap()
+        self.workers_init()
         self.start_workers()
         self.show()
 
@@ -101,13 +122,19 @@ class MainWindow(QMainWindow):
         for worker in self.camera_workers:
             self.camera_workers[worker].set_loop(self.client.loop)
 
-    def workers_get_cap(self):
+    def workers_init(self):
         for worker in self.camera_workers:
-            self.camera_workers[worker].get_cap()
+            self.camera_workers[worker].init_worker()
 
     def start_workers(self):
         for camera_name in self.camera_threads:
             self.camera_threads[camera_name].start()
+
+    def enable_det(self):
+        self.enable_detection.emit()
+
+    def disable_det(self):
+        self.disable_detection.emit()
 
     @pyqtSlot(QImage, str)
     def setFrame(self, frame, camera_name):

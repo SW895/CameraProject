@@ -1,64 +1,122 @@
 import cv2
-# import os
-# import json
+import os
 import base64
 import struct
 import threading
-# import numpy
+import queue
 import logging
 import asyncio
 from ultralytics import YOLO
 from datetime import (
-    # date,
+    date,
     datetime
 )
 from PyQt6.QtCore import (
     QObject,
     pyqtSignal,
+    pyqtSlot
 )
 from PyQt6.QtGui import QImage
 from settings import (
-    BUFF_SIZE,
+    MAX_VIDEO_LENGTH,
     MODEL_PATH,
     CONFIDENCE,
-    # TIMEZONE,
+    DEFAULT_DETECTION,
+    TIMEZONE,
+    SAVE_PATH,
+    SAVE_FRAME_TIMEOUT,
+    NO_DETECTION_LEN
 )
 
 
 class CameraWorker(QObject):
-
-    videostream_frame = asyncio.Queue(maxsize=1)
-    changePixmap = pyqtSignal(QImage, str)
-    finished = pyqtSignal()
-    _detected_obj = {'car_det': False,
-                     'cat_det': False,
-                     'chiken_det': False,
-                     'human_det': False}
-    _lock = threading.Lock()
-    _processing_video = threading.Event()
-    _detection = threading.Event()
-    _processing_thread_ended = threading.Event()
 
     def __init__(self, camera_name, camera_source):
         super().__init__()
         self.camera_name = camera_name
         self.camera_source = camera_source
         self.log = logging.getLogger(self.camera_name)
+        self.videostream_frame = asyncio.Queue(maxsize=1)
+        self.changePixmap = pyqtSignal(QImage, str)
+        self.finished = pyqtSignal()
+        self._lock = threading.Lock()
+        self._frame_handler = None
+        self._model_exist = False
 
-    def processing_video(self):
-        return self._processing_video.is_set()
+    @pyqtSlot()
+    def enable_detection(self):
+        if self._model_exist:
+            with self._lock:
+                self._frame_handler = DetectingObjects(self.camera_name,
+                                                       self.log,
+                                                       self._loop,
+                                                       self.videostream_frame,
+                                                       self.changePixmap,
+                                                       self.model)
 
-    def stop_video_processing(self):
-        self._processing_video.clear()
+    @pyqtSlot()
+    def disable_detection(self):
+        with self._lock:
+            self._frame_handler = NoDetecting(self.camera_name,
+                                              self.log,
+                                              self._loop,
+                                              self.videostream_frame,
+                                              self.changePixmap)
 
-    def start_video_processing(self):
-        self._processing_video.set()
+    def init_worker(self):
+        self.get_video_capture()
+        try:
+            self.get_model()
+        except OSError:
+            self._model_exist = False
+        else:
+            self._model_exist = True
+        self.set_default_frame_handler()
 
-    def get_cap(self):
+    def set_default_frame_handler(self):
+        with self._lock:
+            if DEFAULT_DETECTION and self._model_exist:
+                self._frame_handler = DetectingObjects(self.camera_name,
+                                                       self.log,
+                                                       self._loop,
+                                                       self.videostream_frame,
+                                                       self.changePixmap,
+                                                       self.model)
+            else:
+                self._frame_handler = NoDetecting(self.camera_name,
+                                                  self.log,
+                                                  self._loop,
+                                                  self.videostream_frame,
+                                                  self.changePixmap)
+
+    def get_video_capture(self):
         self.cap = cv2.VideoCapture(self.camera_source)
+        self.width = 1
+        self.height = 1 # REWORK
+
+    def get_model(self):
+        self.model = YOLO(MODEL_PATH)
 
     def set_loop(self, loop):
         self._loop = loop
+
+    def run_camera(self):
+        self.log.info('CAMERA SOURCE %s', self.camera_source)
+        while self.cap.isOpened():
+            success, frame = self.cap.read()
+            if success:
+                with self._lock:
+                    self._frame_handler.process_frame(frame)
+            else:
+                break
+
+
+class FrameProcessing:
+
+    def process_frame(self, frame):
+        self.frame = self.process_detections(frame)
+        self.send_frame_to_stream(self.frame)
+        self.send_frame_to_GUI(self.frame)
 
     def send_frame_to_stream(self, frame):
         if self.videostream_frame.qsize() == 0:
@@ -68,75 +126,10 @@ class CameraWorker(QObject):
 
     def send_frame_to_GUI(self, frame):
         converted_frame = self.convert_to_QImage(frame)
-        self.changePixmap.emit(converted_frame, self.camera_name)
+        self.gui_signal.emit(converted_frame, self.camera_name)
 
-    def detect_objects(self):
-        self.log.info('CAMERA SOURCE %s', self.camera_source)
-        frames_to_save = []
-        if not self.model:
-            raise OSError
-        while self.cap.isOpened() and self.processing_video():
-            success, frame = self.cap.read()
-            if success:
-                results = self.model(frame, conf=CONFIDENCE)
-                if results[0]:
-                    self.update_detection(results)
-                    self._obj_detected = True
-                    self._counter = 0
-                    self.log.debug('%s', self._detection)
-                elif self._obj_detected:
-                    self._counter += 1
-
-                if self._counter >= self.no_detection_time:
-                    self.log.debug('Reset counter and detection dict')
-                    self.reset_detection_and_counter()
-
-                if self._obj_detected and (len(frames_to_save) < BUFF_SIZE):
-                    frames_to_save.append(frame)
-                elif self._obj_detected:
-                    self.log.debug('Save video')
-                    current_time = datetime.now(tz=self.timezone)
-                    self.save_video(frames_to_save,
-                                    self._detection,
-                                    current_time)
-                    self.reset_detection_and_counter()
-                    frames_to_save = []
-
-                self.send_frame_to_stream(frame)
-                self.send_frame_to_GUI(frame)
-            else:
-                break
-
-    def get_model(self):
-        try:
-            self.model = YOLO(MODEL_PATH)
-        except OSError:
-            self.log.error('NO WEIGHTS')
-
-    def update_detection(self, results):
-        for r in results:
-            for c in r.boxes.cls:
-                if not self._detection[self.model.names[int(c)]]:
-                    self._detection[self.model.names[int(c)]] = True
-
-    def reset_detection_and_counter(self):
-        self._detection = {'car_det': False,
-                           'cat_det': False,
-                           'chiken_det': False,
-                           'human_det': False}
-        self._counter = 0
-        self._obj_detected = False
-
-    def no_detection(self):
-        self.log.info('CAMERA SOURCE %s', self.camera_source)
-        while self.cap.isOpened() and self.processing_video():
-            success, frame = self.cap.read()
-            if success:
-                self.send_frame_to_stream(frame)
-                self.send_frame_to_GUI(frame)
-            else:
-                break
-        self.log.debug('Thread ended')
+    def process_detections(self, frame):
+        return frame
 
     def convert_to_QImage(self, frame):
         rgbImage = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -155,52 +148,140 @@ class CameraWorker(QObject):
         encoded_frame = struct.pack("Q", len(b64_img)) + b64_img
         return encoded_frame
 
-    def run_worker(self):
-        # if self.detection:
-        #    self.detect_objects()
-        # else:
-        self.start_video_processing()
-        self.no_detection()
 
-    """
-    REWORK!!!!!!!
+class DetectingObjects(FrameProcessing):
 
-    def save_video(self, frames_to_save, new_item):
-        current_time = datetime.now()
-        log = logging.getLogger('Save video')
-        log.debug('Thread started, video length: %s, detection: %s',
-            len(frames_to_save),
-            new_item)
+    def __init__(self,
+                 camera_name,
+                 log,
+                 loop,
+                 videostream_frame,
+                 GUI_signal,
+                 model):
+        self.camera_name = camera_name
+        self.log = log
+        self._loop = loop
+        self.videostream_frame = videostream_frame
+        self.gui_signal = GUI_signal
+        self.model = model
+        self._detection = {
+            'car_det': False,
+            'cat_det': False,
+            'chiken_det': False,
+            'human_det': False,
+            'camera_id': self.camera_name
+        }
+        self._obj_detected = False
+        self.frames_to_save = []
+        self.video_length = 0
+        self.frames_from_last_detection = 0
+        self.save_thread = None
+
+    def process_detections(self, frame):
+        results = self.model(frame, conf=CONFIDENCE, verbose=False)
+        annotated_frame = results[0].plot()
+        if results[0]:
+            self.frames_from_last_detection = 0
+            self.update_detection(results)
+            if not self._obj_detected:
+                self._obj_detected = True
+                width, height = frame.shape[1], frame.shape[0]
+                self.save_thread = SaveVideo()
+                th = threading.Thread(target=self.save_thread.run,
+                                      args=(width, height))
+                th.start()
+        elif self._obj_detected:
+            self.frames_from_last_detection += 1
+        if self._obj_detected:
+            self.save_thread.frame_queue.put(annotated_frame)
+            self.video_length += 1
+
+        if (self.video_length > MAX_VIDEO_LENGTH) or \
+           (self.frames_from_last_detection > NO_DETECTION_LEN):
+            self.save_thread.update_record(self._detection)
+            self.save_thread.end_of_file()
+            self.reset_detection_and_counters()
+        return annotated_frame
+
+    def update_detection(self, results):
+        for r in results:
+            for c in r.boxes.cls:
+                if not self._detection[self.model.names[int(c)]]:
+                    self._detection[self.model.names[int(c)]] = True
+
+    def reset_detection_and_counters(self):
+        self._detection = {'car_det': False,
+                           'cat_det': False,
+                           'chiken_det': False,
+                           'human_det': False}
+        self.video_length = 0
+        self.frames_from_last_detection = 0
+        self.save_thread = None
+        self._obj_detected = False
+
+
+class NoDetecting(FrameProcessing):
+
+    def __init__(self,
+                 camera_name,
+                 log,
+                 loop,
+                 videostream_frame,
+                 GUI_signal):
+        self.camera_name = camera_name
+        self.log = log
+        self._loop = loop
+        self.videostream_frame = videostream_frame
+        self.gui_signal = GUI_signal
+
+
+class SaveVideo:
+
+    def __init__(self):
+        self.frame_queue = queue.Queue()
+        self._end_of_file = threading.Event()
+        self._lock = threading.Lock()
+        self.log = logging.getLogger('Save video')
+        self.record = {}
+
+    def end_of_file(self):
+        self._end_of_file.set()
+
+    def not_end_of_file(self):
+        return not self._end_of_file.is_set()
+
+    def update_record(self, detection):
+        with self._lock:
+            self.record.update(detection)
+        return self.record
+
+    def run(self, width, height):
+        print(self.frame_queue)
+        current_time = datetime.now(tz=TIMEZONE)
+        self.record.update({'date_created': current_time.isoformat()})
+        self.log.debug('Thread started')
         today = date.today()
-        today_save_path = self.save_path / (today.strftime("%d_%m_%Y") + '/')
-        log.debug('Save path: %s', today_save_path)
+        today_save_path = SAVE_PATH / (today.strftime("%d_%m_%Y") + '/')
         if not os.path.isdir(today_save_path):
             os.mkdir(today_save_path)
 
         video_name = os.path.join(
             today_save_path,
-            current_time.strftime("%d_%m_%YT%H_%M_%S") + '.mp4')
-        log.debug('video name: %s', video_name)
-        torchvision.io.write_video(video_name, numpy.array(frames_to_save), 10)
-
-        new_item['date_created'] = current_time.isoformat()
-        new_item['camera_id'] = self.camera_name
-        log.debug('new_record: %s', new_item)
-        new_record = json.dumps(new_item)
-        sock = get_connection(ClientRequest(request_type='new_record',
-                                            db_record='new_item'),
-                                attempts_num=1,
-                                server_address=self.server_address,
-                                server_port=self.server_port)
-
-        if sock:
+            current_time.strftime("%d_%m_%YT%H_%M_%S") + '.mp4'
+        )
+        self.log.debug('video name: %s', video_name)
+        xx = cv2.VideoWriter_fourcc(*'mp4v')
+        out = cv2.VideoWriter(video_name,
+                              xx,
+                              10,
+                              (640, 480), isColor=True)
+        while self.not_end_of_file():
             try:
-                sock.send(new_record.encode())
-            except BrokenPipeError or ConnectionResetError:
-                log.error('Failed to sent record to server')
-                with open((self.base_dir / filename), 'a') as outfile:
-                    outfile.write(new_record + '\n')
+                frame = self.frame_queue.get(timeout=SAVE_FRAME_TIMEOUT)
+            except queue.Empty:
+                break
             else:
-                log.info('Successfully send record to server')
-            sock.close()
-    """
+                frame = cv2.resize(frame, (640, 480))
+                frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2BGR)
+                out.write(frame)
+        out.release()
