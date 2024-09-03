@@ -61,8 +61,9 @@ class VideoStream(ConnectionMixin):
         self.camera_worker = camera_worker
         self.camera_name = camera_name
         self.log = logging.getLogger(self.camera_name)
-        builder = RequestBuilder().with_args(request_type='stream_response',
-                                             camera_name=self.camera_name)
+        builder = RequestBuilder().with_args(
+            request_type='stream_response',
+            camera_name=self.camera_name)
         self.request = builder.build()
 
     async def stream_video(self):

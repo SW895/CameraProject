@@ -25,11 +25,15 @@ from settings import (
     TIMEZONE,
     SAVE_PATH,
     SAVE_FRAME_TIMEOUT,
-    NO_DETECTION_LEN
+    NO_DETECTION_LEN,
+    FPS
 )
 
 
 class CameraWorker(QObject):
+
+    changePixmap = pyqtSignal(QImage, str)
+    finished = pyqtSignal()
 
     def __init__(self, camera_name, camera_source):
         super().__init__()
@@ -37,8 +41,6 @@ class CameraWorker(QObject):
         self.camera_source = camera_source
         self.log = logging.getLogger(self.camera_name)
         self.videostream_frame = asyncio.Queue(maxsize=1)
-        self.changePixmap = pyqtSignal(QImage, str)
-        self.finished = pyqtSignal()
         self._lock = threading.Lock()
         self._frame_handler = None
         self._model_exist = False
@@ -47,21 +49,27 @@ class CameraWorker(QObject):
     def enable_detection(self):
         if self._model_exist:
             with self._lock:
-                self._frame_handler = DetectingObjects(self.camera_name,
-                                                       self.log,
-                                                       self._loop,
-                                                       self.videostream_frame,
-                                                       self.changePixmap,
-                                                       self.model)
+                self._frame_handler = DetectingObjects(
+                    camera_name=self.camera_name,
+                    logger=self.log,
+                    event_loop=self._loop,
+                    frame_queue=self.videostream_frame,
+                    gui_signal=self.changePixmap,
+                    resolution=self.resolution,
+                    model=self.model
+                )
 
     @pyqtSlot()
     def disable_detection(self):
         with self._lock:
-            self._frame_handler = NoDetecting(self.camera_name,
-                                              self.log,
-                                              self._loop,
-                                              self.videostream_frame,
-                                              self.changePixmap)
+            self._frame_handler = NoDetecting(
+                camera_name=self.camera_name,
+                logger=self.log,
+                event_loop=self._loop,
+                frame_queue=self.videostream_frame,
+                gui_signal=self.changePixmap,
+                resolution=self.resolution
+            )
 
     def init_worker(self):
         self.get_video_capture()
@@ -76,23 +84,29 @@ class CameraWorker(QObject):
     def set_default_frame_handler(self):
         with self._lock:
             if DEFAULT_DETECTION and self._model_exist:
-                self._frame_handler = DetectingObjects(self.camera_name,
-                                                       self.log,
-                                                       self._loop,
-                                                       self.videostream_frame,
-                                                       self.changePixmap,
-                                                       self.model)
+                self._frame_handler = DetectingObjects(
+                    camera_name=self.camera_name,
+                    logger=self.log,
+                    event_loop=self._loop,
+                    frame_queue=self.videostream_frame,
+                    gui_signal=self.changePixmap,
+                    resolution=self.resolution,
+                    model=self.model
+                )
             else:
-                self._frame_handler = NoDetecting(self.camera_name,
-                                                  self.log,
-                                                  self._loop,
-                                                  self.videostream_frame,
-                                                  self.changePixmap)
+                self._frame_handler = NoDetecting(
+                    camera_name=self.camera_name,
+                    logger=self.log,
+                    event_loop=self._loop,
+                    frame_queue=self.videostream_frame,
+                    gui_signal=self.changePixmap,
+                    resolution=self.resolution
+                )
 
     def get_video_capture(self):
         self.cap = cv2.VideoCapture(self.camera_source)
-        self.width = 1
-        self.height = 1 # REWORK
+        self.resolution = (int(self.cap.get(cv2.CAP_PROP_FRAME_WIDTH)),
+                           int(self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT)))
 
     def get_model(self):
         self.model = YOLO(MODEL_PATH)
@@ -135,12 +149,14 @@ class FrameProcessing:
         rgbImage = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         height, width, channels = rgbImage.shape
         bytesPerLine = channels * width
-        convertToQtFormat = QImage(rgbImage.data,
-                                   width,
-                                   height,
-                                   bytesPerLine,
-                                   QImage.Format.Format_RGB888)
-        return convertToQtFormat.scaled(640, 480)
+        convertToQtFormat = QImage(
+            rgbImage.data,
+            width,
+            height,
+            bytesPerLine,
+            QImage.Format.Format_RGB888
+        )
+        return convertToQtFormat.scaled(self.resolution[0], self.resolution[1])
 
     def encode(self, frame):
         ret, jpeg = cv2.imencode('.jpg', frame)
@@ -151,19 +167,14 @@ class FrameProcessing:
 
 class DetectingObjects(FrameProcessing):
 
-    def __init__(self,
-                 camera_name,
-                 log,
-                 loop,
-                 videostream_frame,
-                 GUI_signal,
-                 model):
-        self.camera_name = camera_name
-        self.log = log
-        self._loop = loop
-        self.videostream_frame = videostream_frame
-        self.gui_signal = GUI_signal
-        self.model = model
+    def __init__(self, **kwargs):
+        self.camera_name = kwargs['camera_name']
+        self.log = kwargs['logger']
+        self._loop = kwargs['event_loop']
+        self.videostream_frame = kwargs['frame_queue']
+        self.gui_signal = kwargs['gui_signal']
+        self.model = kwargs['model']
+        self.resolution = kwargs['resolution']
         self._detection = {
             'car_det': False,
             'cat_det': False,
@@ -185,10 +196,11 @@ class DetectingObjects(FrameProcessing):
             self.update_detection(results)
             if not self._obj_detected:
                 self._obj_detected = True
-                width, height = frame.shape[1], frame.shape[0]
-                self.save_thread = SaveVideo()
-                th = threading.Thread(target=self.save_thread.run,
-                                      args=(width, height))
+                self.save_thread = SaveVideo(
+                    self.resolution,
+                    self.camera_name
+                )
+                th = threading.Thread(target=self.save_thread.run)
                 th.start()
         elif self._obj_detected:
             self.frames_from_last_detection += 1
@@ -222,27 +234,28 @@ class DetectingObjects(FrameProcessing):
 
 class NoDetecting(FrameProcessing):
 
-    def __init__(self,
-                 camera_name,
-                 log,
-                 loop,
-                 videostream_frame,
-                 GUI_signal):
-        self.camera_name = camera_name
-        self.log = log
-        self._loop = loop
-        self.videostream_frame = videostream_frame
-        self.gui_signal = GUI_signal
+    def __init__(self, **kwargs):
+        self.camera_name = kwargs['camera_name']
+        self.log = kwargs['logger']
+        self._loop = kwargs['event_loop']
+        self.videostream_frame = kwargs['frame_queue']
+        self.gui_signal = kwargs['gui_signal']
+        self.resolution = kwargs['resolution']
 
 
 class SaveVideo:
 
-    def __init__(self):
+    def __init__(self, resolution, camera_name):
+        self.resolution = resolution
+        self.camera_name = camera_name
         self.frame_queue = queue.Queue()
         self._end_of_file = threading.Event()
         self._lock = threading.Lock()
         self.log = logging.getLogger('Save video')
         self.record = {}
+        self.save_path = SAVE_PATH / self.camera_name
+        if not os.path.isdir(self.save_path):
+            os.mkdir(self.save_path)
 
     def end_of_file(self):
         self._end_of_file.set()
@@ -255,13 +268,12 @@ class SaveVideo:
             self.record.update(detection)
         return self.record
 
-    def run(self, width, height):
-        print(self.frame_queue)
+    def run(self):
         current_time = datetime.now(tz=TIMEZONE)
         self.record.update({'date_created': current_time.isoformat()})
         self.log.debug('Thread started')
         today = date.today()
-        today_save_path = SAVE_PATH / (today.strftime("%d_%m_%Y") + '/')
+        today_save_path = self.save_path / (today.strftime("%d_%m_%Y") + '/')
         if not os.path.isdir(today_save_path):
             os.mkdir(today_save_path)
 
@@ -270,18 +282,21 @@ class SaveVideo:
             current_time.strftime("%d_%m_%YT%H_%M_%S") + '.mp4'
         )
         self.log.debug('video name: %s', video_name)
-        xx = cv2.VideoWriter_fourcc(*'mp4v')
-        out = cv2.VideoWriter(video_name,
-                              xx,
-                              10,
-                              (640, 480), isColor=True)
+        out = cv2.VideoWriter(
+            video_name,
+            cv2.VideoWriter_fourcc(*'mp4v'),
+            FPS,
+            (self.resolution[0], self.resolution[1]),
+            isColor=True)
         while self.not_end_of_file():
             try:
                 frame = self.frame_queue.get(timeout=SAVE_FRAME_TIMEOUT)
             except queue.Empty:
                 break
             else:
-                frame = cv2.resize(frame, (640, 480))
+                frame = cv2.resize(
+                    frame,
+                    (self.resolution[0], self.resolution[1]))
                 frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2BGR)
                 out.write(frame)
         out.release()

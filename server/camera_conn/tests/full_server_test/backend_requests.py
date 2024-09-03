@@ -6,7 +6,7 @@ import struct
 from pathlib import Path
 base_dir = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(1, str(base_dir))
-from cam_server import RequestBuilder
+from request_builder import RequestBuilder
 from settings import (INTERNAL_HOST,
                       INTERNAL_PORT,
                       SOCKET_BUFF_SIZE,)

@@ -4,7 +4,7 @@ from django.conf import settings
 from .models import CachedVideo
 import datetime
 import os
-import pytz 
+import pytz
 
 
 @app.task

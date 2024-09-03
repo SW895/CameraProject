@@ -7,7 +7,7 @@ from settings import (SOCKET_BUFF_SIZE,
 from db import (NewVideoRecord,
                 CameraRecord,
                 UserRecord)
-from cam_server import RequestBuilder
+from request_builder import RequestBuilder
 from managers import (VideoStreamManager,
                       VideoRequestManager,
                       SignalCollector)
@@ -215,7 +215,6 @@ class AproveUserRequestHandler(BaseHandler):
         if request.request_type != 'aprove_user_request':
             return
         self.log.debug('User Request processing %s', request)
-        self.log.debug(isinstance(self.signal, SignalCollector))
         await self.signal.signal_queue.put(request)
         request.writer.close()
         await request.writer.wait_closed()

@@ -7,8 +7,8 @@ logging.basicConfig(
     format="%(name)s | %(levelname)s | %(asctime)s | %(message)s",
     datefmt="%Y-%m-%dT%H:%M:%S",)
 
-DEBUG = bool(int(os.environ.get('DEBUG', 0)))
-GLOBAL_TEST = bool(int(os.environ.get('GLOBAL_TEST', 0)))
+DEBUG = bool(int(os.environ.get('DEBUG', 1)))
+GLOBAL_TEST = bool(int(os.environ.get('GLOBAL_TEST', 1)))
 STREAM_SOURCE_TIMEOUT = int(os.environ.get('STREAM_SOURCE_TIMEOUT', '5'))
 VIDEO_REQUEST_TIMEOUT = int(os.environ.get('VIDEO_REQUEST_TIMEOUT', '5'))
 GARB_COLLECTOR_TIMEOUT = int(os.environ.get('GARB_COLLECTOR_TIMEOUT', '10'))

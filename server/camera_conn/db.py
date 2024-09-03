@@ -2,7 +2,7 @@ import asyncio
 import psycopg
 import logging
 from psycopg import sql
-from cam_server import RequestBuilder
+from request_builder import RequestBuilder
 from settings import (DB_HOST,
                       DB_NAME,
                       DB_PASSWORD,

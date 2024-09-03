@@ -10,5 +10,4 @@ echo "PostgreSQL started"
 
 python manage.py makemigrations
 python manage.py migrate --no-input
-#gunicorn djbackend.wsgi:application --bind 0.0.0.0:8000 --timeout 0 --workers=5
 daphne -b 0.0.0.0 -p 8000 djbackend.asgi:application

@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from camera_utils import SingletonMeta
-from cam_server import RequestBuilder
+from request_builder import RequestBuilder
 from settings import (SOCKET_BUFF_SIZE,
                       STREAM_SOURCE_TIMEOUT,
                       VIDEO_REQUEST_TIMEOUT,
@@ -322,6 +322,7 @@ class SignalCollector(BaseManager, metaclass=SingletonMeta):
     garb_collector_timeout = GARB_COLLECTOR_TIMEOUT
 
     async def process_requesters(self):  # register clients
+        self.clients['main'] = Client('main')
         while True:
             try:
                 client = await self.client_queue.get()
@@ -329,8 +330,8 @@ class SignalCollector(BaseManager, metaclass=SingletonMeta):
                 break
 
             if not (client.client_id in self.clients):
-                self.log.debug('Creating client: %s', client.client_id)
-                self.clients[client.client_id] = Client(client)
+                self.log.debug('Client does not exist: %s', client.client_id)
+                continue
             else:
                 self.clients[client.client_id].update_connection(client)
                 self.log.debug('Client exists')
@@ -360,17 +361,15 @@ class Client:
     task = None
     signal_queue = asyncio.Queue()
 
-    def __init__(self, client):
-        self.client = client
-        self.writer = client.writer
-        self.reader = client.reader
-        self.log = logging.getLogger(client.client_id)
+    def __init__(self, client_id):
+        self.client_id = client_id
+        self.log = logging.getLogger(self.client_id)
 
     def __eq__(self, other):
         SameObject = isinstance(other, self.__class__)
         if SameObject:
             return True
-        if self.client.client_id == other.client.client_id:
+        if self.client_id == other.client_id:
             return True
         return False
 

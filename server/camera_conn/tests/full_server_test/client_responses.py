@@ -7,7 +7,7 @@ import struct
 from pathlib import Path
 base_dir = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(1, str(base_dir))
-from cam_server import RequestBuilder
+from request_builder import RequestBuilder
 from settings import (EXTERNAL_HOST,
                       EXTERNAL_PORT,
                       SOCKET_BUFF_SIZE)
@@ -23,6 +23,10 @@ class TestClient:
     @property
     def result(self):
         return self._signal_conn.results
+
+    async def result_ready(self):
+        while not self._signal_conn.wait_result.is_set():
+            await asyncio.sleep(1)
 
     def add_handlers(self, *args):
         self._signal_conn.add_handlers(*args)
@@ -70,11 +74,14 @@ class BaseConnection:
         reply = await reader.read(self.buff_size)
         if reply.decode() == 'accepted':
             return reader, writer
+        return None, None
 
 
 class SignalConnection(BaseConnection):
+
     handlers = []
     results = {}
+    wait_result = asyncio.Event()
 
     def __init__(self):
         builder = RequestBuilder().with_args(request_type='signal')
@@ -85,21 +92,32 @@ class SignalConnection(BaseConnection):
             self.handlers.append(handler)
 
     async def run(self):
-        reader, _ = await self.get_connection(self.request)
+        self.wait_result.clear()
         while True:
+            reader, _ = await self.get_connection(self.request)
+            if not reader:
+                await asyncio.sleep(0.5)
+                continue
             try:
                 data = await reader.read(self.buff_size)
             except asyncio.CancelledError:
                 return
             if data:
-                builder = RequestBuilder().with_bytes(data)
-                request = builder.build()
-                for handler in self.handlers:
-                    result = await handler.run(request)
-                    if isinstance(result, dict):
-                        self.results.update(result)
+                msg_list = data.decode().split('\n')
+                for message in msg_list:
+                    if not message:
+                        continue
+                    builder = RequestBuilder().with_args(**json.loads(message))
+                    request = builder.build()
+                    for handler in self.handlers:
+                        result = await handler.run(request)
+                        if isinstance(result, dict):
+                            self.results.update(result)
+                            self.wait_result.set()
+                            return
+                break
             else:
-                return
+                await asyncio.sleep(0.5)
 
 
 class StreamConnection(BaseConnection):
@@ -116,7 +134,6 @@ class StreamConnection(BaseConnection):
         path = Path(__file__).resolve().parent
         with open(f"{path}/test.jpg", "rb") as image_file:
             encoded_image = base64.b64encode(image_file.read())
-
         message = struct.pack("Q", len(encoded_image)) + encoded_image
         while True:
             try:

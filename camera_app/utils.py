@@ -1,4 +1,3 @@
-import logging
 import asyncio
 from settings import (
     SOCKET_BUFF_SIZE,
@@ -32,7 +31,6 @@ class ConnectionMixin:
             reader, writer = await asyncio.open_connection(
                 self.host, self.port)
         except ConnectionRefusedError:
-            #logging.error('Failed to connect to server')
             return None, None
 
         try:

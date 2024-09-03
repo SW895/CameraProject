@@ -84,9 +84,11 @@ class MainWindow(QMainWindow):
 
     def init_network_thread(self):
         self.client = ConnectionClient(camera_workers_list=self.camera_workers)
-        self.client.add_handlers(AproveUserHandler,
-                                 VideoRequestHandler,
-                                 StreamHandler)
+        self.client.add_handlers(
+            AproveUserHandler,
+            VideoRequestHandler,
+            StreamHandler
+        )
         self.network_thread = QThread(self)
         self.client.moveToThread(self.network_thread)
         self.client.finished.connect(self.network_thread.quit)
@@ -98,8 +100,10 @@ class MainWindow(QMainWindow):
 
     def init_camera_workers(self):
         for camera in CAMERA_LIST:
-            current_worker = CameraWorker(camera_name=camera,
-                                          camera_source=CAMERA_LIST[camera])
+            current_worker = CameraWorker(
+                camera_name=camera,
+                camera_source=CAMERA_LIST[camera]
+            )
             current_thread = QThread(self)
             self.camera_workers.update({camera: current_worker})
             self.camera_threads.update({camera: current_thread})

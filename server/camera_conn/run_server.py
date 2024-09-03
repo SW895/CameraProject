@@ -1,5 +1,7 @@
 import asyncio
 import socket
+import logging
+import time
 from cam_server import AsyncServer
 from settings import (EXTERNAL_HOST,
                       EXTERNAL_PORT,
@@ -18,8 +20,6 @@ from handlers import (VideoStreamRequestHandler,
                       VideoRequestHandler,
                       VideoResponseHandler,
                       AproveUserRequestHandler)
-import logging
-import time
 
 
 class Server:

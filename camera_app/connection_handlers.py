@@ -10,8 +10,9 @@ from utils import ConnectionMixin
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from settings import (
-    USER_LIST,
+    APROVED_USER_LIST,
     APROVE_ALL,
+    EMAIL_ENABLED,
     EMAIL_BACKEND,
     EMAIL_PASSWORD,
     EMAIL_PORT,
@@ -44,7 +45,7 @@ class AproveUserHandler(BaseClientHandler):
         username = request.username
         email = request.email
 
-        if (username in USER_LIST) or APROVE_ALL:
+        if (username in APROVED_USER_LIST) or APROVE_ALL:
             record = {'username': username, 'request_result': 'aproved'}
             self.log.info('%s aproved', username)
             result = True
@@ -69,10 +70,8 @@ class AproveUserHandler(BaseClientHandler):
                 reply = await reader.read(self.buff_size)
                 response = json.loads(reply.decode())
                 if response['status'] == 'success':
-                    try:  # BYPASS WRONG DATA
+                    if EMAIL_ENABLED:
                         self.send_email(username, email, result)
-                    except Exception:
-                        pass
                 writer.close()
                 await writer.wait_closed()
 
@@ -153,17 +152,19 @@ class VideoRequestHandler(BaseClientHandler):
             async with aiofiles.open(full_video_name, mode="rb") as video:
                 video_bytes = await video.read()
                 self.log.debug('video length: %s', len(video_bytes))
-            builder = RequestBuilder().with_args(request_type='video_response',
-                                                 video_name=request.video_name,
-                                                 video_size=len(video_bytes))
+            builder = RequestBuilder().with_args(
+                request_type='video_response',
+                video_name=request.video_name,
+                video_size=len(video_bytes))
         else:
-            builder = RequestBuilder().with_args(request_type='video_response',
-                                                 video_name=request.video_name,
-                                                 video_size=0)
+            builder = RequestBuilder().with_args(
+                request_type='video_response',
+                video_name=request.video_name,
+                video_size=0)
             self.log.error('No such video %s', full_video_name)
 
         request = builder.build()
-        reader, writer = await self.connect_to_server(request)
+        _, writer = await self.connect_to_server(request)
         if writer and video_bytes:
             try:
                 writer.write(video_bytes)
