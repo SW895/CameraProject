@@ -12,13 +12,11 @@ from settings import (DB_HOST,
 
 class BaseRecordHandler:
 
-    log = logging.getLogger('Base Record Handler')
-    save_queue = asyncio.Queue()
-    cur = None
-    db_conn = None
-
     def __init__(self, request):
         self.request = request
+        self.save_queue = asyncio.Queue()
+        self.cur = None
+        self.db_conn = None
 
     async def save(self):
         await self.get_db_connection()
@@ -156,18 +154,13 @@ class ActiveCameras:
 
 
 async def connect_to_db():
-    dbname = DB_NAME
-    db_user = DB_USER
-    db_password = DB_PASSWORD
-    db_host = DB_HOST
-    db_port = DB_PORT
     try:
         db_conn = await psycopg.AsyncConnection.connect(
-            dbname=dbname,
-            user=db_user,
-            password=db_password,
-            host=db_host,
-            port=db_port)
+            dbname=DB_NAME,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            host=DB_HOST,
+            port=DB_PORT)
     except Exception as error:
         logging.error('FAILED TO CONNECT TO DB: %s', error)
         return None, None

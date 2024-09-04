@@ -30,7 +30,7 @@ class SignalHandler(BaseHandler):
     async def handle(self, request):
         if request.request_type != 'signal':
             return
-        # self.log.debug('Signal handler started')
+        self.log.debug('Signal handler started')
         await self.manager.client_queue.put(request)
         return True
 
@@ -143,7 +143,6 @@ class VideoResponseHandler(BaseHandler):
             return
         async with aiofiles.open(name, mode="wb") as video:
             await video.write(data)
-        self.log.debug('AAAAAAAAAAAAAAAAAAAAAAAAAAA')
 
     @classmethod
     async def handle(self, request):

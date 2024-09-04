@@ -13,7 +13,6 @@ class ErrorAfter(object):
     '''
     Callable that will raise `CallableExhausted`
     exception after `limit` calls
-
     '''
     def __init__(self, limit, return_value):
         self.limit = limit

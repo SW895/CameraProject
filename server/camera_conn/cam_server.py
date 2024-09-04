@@ -30,7 +30,7 @@ class AsyncServer:
                                              reader=reader) \
                                   .with_bytes(data)
         request = builder.build()
-        # self.log.info('Request received. Sending reply')
+        self.log.debug('Request received. Sending reply')
         reply = 'accepted'
         try:
             request.writer.write(reply.encode())
@@ -40,7 +40,7 @@ class AsyncServer:
             request.writer.close()
             await request.writer.wait_closed()
         else:
-            # self.log.info('Start handler %s', request.request_type)
+            self.log.debug('Start handler %s', request.request_type)
             for handler in self.handlers:
                 result = await handler.handle(request)
                 if result:

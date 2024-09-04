@@ -324,11 +324,11 @@ class SignalCollector(BaseManager, metaclass=SingletonMeta):
                 break
 
             if not (client.client_id in self.clients):
-                # self.log.debug('Client does not exist: %s', client.client_id)
+                self.log.debug('Client does not exist: %s', client.client_id)
                 continue
             else:
                 self.clients[client.client_id].update_connection(client)
-                # self.log.debug('Client exists')
+                self.log.debug('Client exists')
             self.clients[client.client_id].task = self.loop.create_task(
                 self.clients[client.client_id].handle_signals())
 
@@ -387,8 +387,8 @@ class Client:
                 self.log.error('Connection to client lost, %s', error)
                 break
 
-        # self.log.info('No more new events')
+        self.log.info('No more new events')
         self.writer.close()
         await self.writer.wait_closed()
-        # self.log.debug('Session ended')
+        self.log.debug('Session ended')
         self.task = None
