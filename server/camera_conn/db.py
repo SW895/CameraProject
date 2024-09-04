@@ -1,124 +1,169 @@
 import asyncio
 import psycopg
 import logging
-import json
 from psycopg import sql
-from camera_utils import connect_to_db, ServerRequest
+from request_builder import RequestBuilder
+from settings import (DB_HOST,
+                      DB_NAME,
+                      DB_PASSWORD,
+                      DB_PORT,
+                      DB_USER)
 
 
-class BaseRecordHandling:
+class BaseRecordHandler:
 
-    DEBUG = False
-    save_queue = asyncio.Queue()
+    def __init__(self, request):
+        self.request = request
+        self.save_queue = asyncio.Queue()
+        self.cur = None
+        self.db_conn = None
 
     async def save(self):
+        await self.get_db_connection()
+        if self.db_conn:
+            return await self.process_records()
+        return 'Failed to connect to DB'
+
+    async def get_db_connection(self):
+        self.log.info('Connection to DB')
+        self.db_conn, self.cur = await connect_to_db()
+
+    async def process_records(self):
+        self.log.info('Successfully connected to db')
+        while self.save_queue.qsize() > 0:
+            record = await self.save_queue.get()
+            self.save_queue.task_done()
+            self.log.info('Got new record')
+            try:
+                await self.save_record(record)
+            except (Exception, psycopg.Error) as error:
+                self.log.error('Error ocured: %s', error)
+                await self.send_response('failed')
+                return 'Transaction failed'
+            else:
+                self.log.info('Record saved')
+
+        await self.db_conn.commit()
+        await self.send_response('success')
+        self.log.info('No more new records')
+        return 'Transaction succseed'
+
+    async def save_record(self, record):
         raise NotImplementedError
 
-"""
-class NewVideoRecord(BaseRecordHandling):
+    async def send_response(self, status):
+        builder = RequestBuilder().with_args(status=status)
+        response = builder.build()
+        self.request.writer.write(response.serialize().encode())
+        await self.request.writer.drain()
+        self.request.writer.close()
+        await self.request.writer.wait_closed()
+        await self.cur.close()
+        await self.db_conn.close()
 
-    log = logging.getLogger('Save records to DB')
 
-    @classmethod
+class NewVideoRecord(BaseRecordHandler):
+
+    log = logging.getLogger('Video Record')
+
+    async def save_record(self, record):
+        columns = record.keys()
+        values = sql.SQL(',').join([record[column] for column in columns])
+        fields = sql.SQL(',').join([sql.Identifier(column)
+                                    for column in columns])
+        ret = sql.SQL('INSERT INTO main_archivevideo({fields}) \
+                       VALUES ({values});').format(fields=fields,
+                                                   values=values,)
+        await self.cur.execute(ret)
+
+
+class CameraRecord(BaseRecordHandler):
+
+    log = logging.getLogger('Camera Record')
+
     async def save(self):
-        
-        self.log.info('Connection to DB')
-        db_conn, cur = connect_to_db(self.DEBUG)
+        await self.get_db_connection()
+        if self.db_conn:
+            await self.set_all_cameras_to_inactive()
+            await self.process_records()
+        return 'Failed to connect to DB'
 
-        if db_conn:
-            self.log.info('Successfully connected to db')
-            while self.save_db_records_queue.qsize() > 0:
-                record = self.save_db_records_queue.get()
-                self.log.info('Got new record')
-                columns = record.keys()
-                values = [record[column] for column in columns]
-                ret = sql.SQL('INSERT INTO main_archivevideo({fields}) VALUES ({values});').format(
-                fields=sql.SQL(',').join([sql.Identifier(column) for column in columns]),
-                values=sql.SQL(',').join(values),)
-                try:
-                    cur.execute(ret)
-                except psycopg.Error as error:
-                    self.signal_queue.put(ServerRequest(request_type='corrupted_record',
-                                                        db_record=json.dumps(record)))
-                    self.log.error('Error ocured: %s', error)
-                else:                    
-                    self.log.info('Record saved')
-                finally:
-                    db_conn.commit()
+    async def save_record(self, record):
+        await self.cur.execute("INSERT INTO \
+                                main_camera (camera_name, is_active) \
+                                VALUES (%s, True) \
+                                ON CONFLICT (camera_name) \
+                                DO UPDATE \
+                                SET is_active=True;",
+                               (record['camera_name'],))
+        self.log.info('Camera %s activated', record['camera_name'])
 
-            self.log.info('No more new records')
-            if self.DEBUG:
-                return   
-            cur.close()
-            db_conn.close()
-"""
-
-class CameraRecord(BaseRecordHandling):
-
-    log = logging.getLogger('Save camera to DB')
-
-    @classmethod
-    async def save(self):
-        
-        self.log.info('Connection to DB')
-        db_conn, cur = connect_to_db(self.DEBUG)
-        if db_conn:
-
-            if self.DEBUG:
-                cur.execute('DELETE FROM main_camera')
-                db_conn.commit()
-            
-            try:
-                cur.execute("UPDATE main_camera SET is_active=False WHERE is_active=True;")
-            except:
-                self.log.error('No records')
-            else:
-                self.log.debug('All cameras set to is_active=False')
-            finally:
-                db_conn.commit()
-
-            while self.save_queue.qsize() > 0:                
-                record = await self.save_queue.get()
-                self.log.info('Got new record %s', record)
-                try:
-                    cur.execute("INSERT INTO main_camera(camera_name, is_active) VALUES (%s, True);", (record['camera_name'],))
-                    self.log.info('Camera %s added', record['camera_name'])                    
-                except (Exception, psycopg.Error) as error:
-                    db_conn.commit()
-                    self.log.error('Failed to create new record %s: %s', record['camera_name'], error)
-                    try:
-                        cur.execute("UPDATE main_camera SET is_active=True WHERE camera_name=%s;",(record['camera_name'],))
-                        self.log.info('Camera %s successfully activated', record['camera_name'])
-                    except (Exception, psycopg.Error) as error:
-                        self.log.error('Corrupted camera record %s: %s', record['camera_name'], error)
-                db_conn.commit()
-                self.save_queue.task_done()
-
-            cur.close()
-            db_conn.close()
-            self.log.info('No more new records')
-
-"""
-class UserRecord(BaseRecordHandling):
-
-    log = logging.getLogger('User aprove')
-
-    def save(self, request):        
-        request.connection.close()
-        db_conn, cur = connect_to_db(self.DEBUG)
-
-        if db_conn:
-            if request.request_result == 'aproved':
-                cur.execute("UPDATE registration_customuser SET is_active=True, admin_checked=True WHERE username=(%s);",(request.username,))
-                self.log.info('User %s successfully activated', request.username)
-            else:
-                cur.execute("UPDATE registration_customuser SET admin_checked=True WHERE username=(%s);",(request.username,))
-                self.log.info('User %s denied', request.username)
-            
-            db_conn.commit()
-            cur.close()
-            db_conn.close()    
+    async def set_all_cameras_to_inactive(self):
+        try:
+            await self.cur.execute("UPDATE main_camera \
+                                   SET is_active=False \
+                                   WHERE is_active=True;")
+        except (Exception, psycopg.Error):
+            self.log.error('No records')
         else:
-            self.log.error('Failed to connect to DB')
+            self.log.debug('All cameras set to is_active=False')
+        finally:
+            await self.db_conn.commit()
 
-"""
+
+class UserRecord(BaseRecordHandler):
+
+    log = logging.getLogger('User Record')
+
+    async def save_record(self, record):
+        if record['request_result'] == 'aproved':
+            await self.cur.execute("UPDATE registration_customuser \
+                                    SET is_active=True, admin_checked=True \
+                                    WHERE username=(%s);",
+                                   (record['username'],))
+            self.log.info('User %s successfully activated',
+                          record['username'])
+        else:
+            await self.cur.execute("UPDATE registration_customuser \
+                                    SET admin_checked=True \
+                                    WHERE username=(%s);",
+                                   (record['username'],))
+            self.log.info('User %s denied', record['username'])
+
+
+class ActiveCameras:
+
+    log = logging.getLogger('Get active cameras')
+
+    @classmethod
+    async def get_active_camera_list(self):
+        self.log.debug('connecting to db')
+        self.db_conn, self.cur = await connect_to_db()
+        if not self.db_conn:
+            self.log.error('Failed to connect to DB')
+            return []
+
+        self.log.info('Successfully connected to db')
+        await self.cur.execute("SELECT camera_name \
+                          FROM main_camera \
+                          WHERE is_active=True")
+        active_cameras = await self.cur.fetchall()
+        await self.cur.close()
+        await self.db_conn.close()
+        return active_cameras
+
+
+async def connect_to_db():
+    try:
+        db_conn = await psycopg.AsyncConnection.connect(
+            dbname=DB_NAME,
+            user=DB_USER,
+            password=DB_PASSWORD,
+            host=DB_HOST,
+            port=DB_PORT)
+    except Exception as error:
+        logging.error('FAILED TO CONNECT TO DB: %s', error)
+        return None, None
+    else:
+        cur = db_conn.cursor()
+        return db_conn, cur

@@ -8,6 +8,7 @@ from django.contrib.auth import get_user_model
 
 User = get_user_model()
 
+
 class TestAproveUser(TestCase):
 
     @classmethod
@@ -36,7 +37,6 @@ class TestAproveUser(TestCase):
             server_sock.shutdown(socket.SHUT_RDWR)
             server_sock.close()
 
-
         cls.sig = queue.Queue()
         cls.result = queue.Queue()
 
@@ -49,11 +49,12 @@ class TestAproveUser(TestCase):
         cls.test_user_2 = 'test_user_2'
         cls.test_password_2 = '1X<ISRUkw+tuK1'
         cls.test_email_2 = 'email2@mail.ru'
-        test_user_1 = User.objects.create_user(username=cls.test_user_1,
-                                             password=cls.test_password_1,
-                                             email=cls.test_email_1,
-                                             is_active=False,
-                                             admin_checked=False,)
+        test_user_1 = User.objects.create_user(
+            username=cls.test_user_1,
+            password=cls.test_password_1,
+            email=cls.test_email_1,
+            is_active=False,
+            admin_checked=False,)
         test_user_2 = User.objects.create_user(username=cls.test_user_2,
                                                password=cls.test_user_2,
                                                email=cls.test_email_2,
@@ -61,9 +62,9 @@ class TestAproveUser(TestCase):
                                                admin_checked=False)
         test_user_1.save()
         test_user_2.save()
-        cls.request = {'request_type':'aprove_user_request', 
-                       'username':cls.test_user_1,
-                       'email':cls.test_email_1}
+        cls.request = {'request_type': 'aprove_user_request',
+                       'username': cls.test_user_1,
+                       'email': cls.test_email_1}
 
     @classmethod
     def tearDownClass(cls):
@@ -76,13 +77,13 @@ class TestAproveUser(TestCase):
     def test_aprove_user_send_correct_message(self):
         self.sig.put('Test')
         user = User.objects.get(username=self.test_user_1)
-        app = aprove_user.apply(args=(user,)).get()
+        aprove_user.apply(args=(user,)).get()
         result = self.result.get()
         self.assertEqual(json.dumps(self.request), result)
 
     def test_check_nonactive_users(self):
         self.sig.put('Test')
-        app = check_nonactive.apply().get()
+        check_nonactive.apply().get()
         result = self.result.get()
         self.assertEqual(json.dumps(self.request), result)
 
@@ -97,21 +98,23 @@ class TestCleanDenied(TestCase):
         cls.test_user_2 = 'test_user_2'
         cls.test_password_2 = '1X<ISRUkw+tuK1'
         cls.test_email_2 = 'email2@mail.ru'
-        test_user_1 = User.objects.create_user(username=cls.test_user_1,
-                                             password=cls.test_password_1,
-                                             email=cls.test_email_1,
-                                             is_active=False,
-                                             admin_checked=True,)
-        test_user_2 = User.objects.create_user(username=cls.test_user_2,
-                                               password=cls.test_user_2,
-                                               email=cls.test_email_2,
-                                               is_active=False,
-                                               admin_checked=False,)
+        test_user_1 = User.objects.create_user(
+            username=cls.test_user_1,
+            password=cls.test_password_1,
+            email=cls.test_email_1,
+            is_active=False,
+            admin_checked=True,)
+        test_user_2 = User.objects.create_user(
+            username=cls.test_user_2,
+            password=cls.test_user_2,
+            email=cls.test_email_2,
+            is_active=False,
+            admin_checked=False,)
         test_user_1.save()
         test_user_2.save()
 
     def test_clean_denied_users(self):
-        app = clean_denied.apply().get()
+        clean_denied.apply().get()
         users = User.objects.all()
         self.assertEqual(1, len(users))
         self.assertEqual(self.test_user_2, users[0].username)

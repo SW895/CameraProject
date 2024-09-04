@@ -1,79 +1,86 @@
-import threading
-import logging
-import socket
-import time
-import json
-from itertools import cycle
+import asyncio
+from request_builder import RequestBuilder
+from settings import (
+    SOCKET_BUFF_SIZE,
+    SERVER_HOST,
+    SERVER_PORT,
+    GET_SERVER_EVENTS_TIMEOUT,
+)
 
-def check_thread(target_function):
 
-    def inner(*args, **kwargs):
+class Singleton(type):
 
-        thread_running = False
+    _instances = {}
 
-        for th in threading.enumerate():
-            if th.name == target_function.__name__:
-                thread_running = True
-                break
+    def __call__(cls, *args, **kwargs):
+        if cls not in cls._instances:
+            instance = super().__call__(*args, **kwargs)
+            cls._instances[cls] = instance
+        return cls._instances[cls]
 
-        if not thread_running :
-            logging.info('Starting thread %s', target_function.__name__)                
-            thread = threading.Thread(target=target_function, args=args, name=target_function.__name__)
-            thread.start()
-            return thread
-        else:
-            logging.warning('Thread %s already running', target_function.__name__)  
 
-    return inner
+class ConnectionMixin:
 
-def new_thread(target_function):
+    buff_size = SOCKET_BUFF_SIZE
+    host = SERVER_HOST
+    port = SERVER_PORT
+    connection_timeout = GET_SERVER_EVENTS_TIMEOUT
+    background_tasks = set()
 
-    def inner(*args, **kwargs):
+    async def connect_to_server(self, request):
+        try:
+            reader, writer = await asyncio.open_connection(
+                self.host, self.port)
+        except ConnectionRefusedError:
+            return None, None
 
-        thread = threading.Thread(target=target_function, args=args, kwargs=kwargs)
-        thread.start()
-        return thread
+        try:
+            writer.write(request.serialize().encode())
+            await writer.drain()
+        except (ConnectionResetError, BrokenPipeError):
+            return None, None
 
-    return inner
+        reply = await reader.read(self.buff_size)
+        if reply.decode() == 'accepted':
+            return reader, writer
+        return None, None
 
-def get_connection(request, attempts_num=0, server_address='127.0.0.1', server_port=10900, buff_size=4096):
-        log = logging.getLogger('Get connection')
-        counter = cycle([1]) if attempts_num == 0 else range(0,attempts_num)
-        log.info('Request type: %s', request.request_type)
-        for i in counter:        
+    async def send_records(self, request, records):
+        reader, writer = await self.connect_to_server(request)
+        if writer:
             try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                log.info('Connecting to %s:%s', server_address, server_port)
-                sock.connect((server_address, server_port))
-            except socket.error as err:
-                log.error('Failed to connect: %s', err)
-                sock.close()  
-                time.sleep(5)          
-                continue
-            else:  
-                log.info('Successfully connected to %s:%s', server_address, server_port)          
-                try:
-                    sock.send(json.dumps(request.__dict__).encode())
-                except BrokenPipeError or ConnectionResetError:
-                    log.error('Connection broken. Reconnectiong ...')
-                    sock.close()
-                    time.sleep(5)
-                    continue
-                else:
-                    try:
-                        reply = sock.recv(buff_size)
-                    except OSError:
-                        sock.close()
-                        time.sleep(5)
-                        continue
-                    else:
-                        if reply.decode() == 'accepted':
-                            log.info('Connection established')
-                            return sock
-                        else:
-                            sock.close()
-                            time.sleep(5)
-                            continue
+                writer.write(records.encode())
+                await writer.drain()
+            except (ConnectionResetError, BrokenPipeError):
+                self.log.error('Connection Error')
+            else:
+                reply = await reader.read(self.buff_size)
+                if reply:
+                    builder = RequestBuilder().with_bytes(reply)
+                    response = builder.build()
+                    if response.status == 'success':
+                        return True
+                writer.close()
+                await writer.wait_closed()
+        return False
 
-        log.error('Connection failed')
-        return None
+
+class ErrorAfter(object):
+    '''
+    Callable that will raise `CallableExhausted`
+    exception after `limit` calls
+    '''
+    def __init__(self, limit, return_value):
+        self.limit = limit
+        self.calls = 0
+        self.return_value = return_value
+
+    def __call__(self, *args):
+        self.calls += 1
+        if self.calls > self.limit:
+            raise CallableExhausted
+        return self.return_value
+
+
+class CallableExhausted(Exception):
+    pass

@@ -1,10 +1,7 @@
-*.ini
-*.env.prod
-*.txt
 *.json
 *.tar
 *.rdb
-video_archive/
+*ToDo.txt
+.pytest_cache/
 __pycache__/
-staticfiles/
-mediafiles/
+admin/

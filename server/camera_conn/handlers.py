@@ -1,111 +1,218 @@
 import asyncio
+import aiofiles
 import logging
-from db import *
-from camera_utils import SingletonMeta
-from managers import VideoStreamManager, VideoRequestManager
-
+import json
+import os
+from settings import (SOCKET_BUFF_SIZE,
+                      GLOBAL_TEST)
+from db import (NewVideoRecord,
+                CameraRecord,
+                UserRecord)
+from request_builder import RequestBuilder
+from managers import (VideoStreamManager,
+                      VideoRequestManager,
+                      SignalCollector)
 
 
 class BaseHandler(object):
-    
+
     @classmethod
     async def handle(self, request):
         raise NotImplementedError
 
 
-class SignalHandler(BaseHandler, metaclass=SingletonMeta):
+class SignalHandler(BaseHandler):
 
-    signal_queue = asyncio.Queue()
     log = logging.getLogger('Signal handler')
-    
+    manager = SignalCollector()
+
     @classmethod
-    async def handle(self, connection):
-        if connection.request_type != 'signal':
-            return        
-        
-        self.log.info('Handler started')
-        while True:
-            self.log.info('Waiting for new signal')
-            signal = await self.signal_queue.get()
-            self.signal_queue.task_done()
-            self.log.info('Get signal:%s', signal.request_type)
-            try:
-                self.log.info('Sending signal')
-                message = signal.serialize() + '\n'
-                connection.writer.write(message.encode())
-                await connection.writer.drain()
-            except Exception as error:
-                self.log.warning('Connection lost. Error:%s', error)
+    async def handle(self, request):
+        if request.request_type != 'signal':
+            return
+        self.log.debug('Signal handler started')
+        await self.manager.client_queue.put(request)
+        return True
+
+
+class NewRecordHandler(BaseHandler):
+
+    log = logging.getLogger('New records')
+
+    @classmethod
+    def set_method(self, record_handler):
+        self._record_handler = record_handler
+
+    @classmethod
+    def get_handler(self):
+        return self._record_handler
+
+    @classmethod
+    async def save(self):
+        await self._record_handler.save()
+
+    @classmethod
+    async def handle(self, request):
+        if request.request_type == 'new_video_record':
+            self.log.debug('New video record method')
+            self.set_method(NewVideoRecord(request))
+        elif request.request_type == 'new_camera_record':
+            self.log.debug('Camera record method')
+            self.set_method(CameraRecord(request))
+        elif request.request_type == 'aprove_user_response':
+            self.log.debug('User record method')
+            self.set_method(UserRecord(request))
+        else:
+            return
+
+        result = b""
+        data = b""
+        self.log.info('Receiving new records')
+        while len(result) < request.record_size:
+            data = await request.reader.read(SOCKET_BUFF_SIZE)
+            result += data
+            if data == b"":
                 break
 
-        connection.writer.close()
-        await connection.writer.wait_closed()
+        self.log.info('New records received')
+        records = result.decode().split('\n')
+        for record in records:
+            if record != "":
+                self.log.debug('RECORD:%s', record)
+                await self.get_handler().save_queue.put(json.loads(record))
+        await self.save()
+        return True
 
 
 class VideoStreamRequestHandler(BaseHandler):
 
     log = logging.getLogger('Video Stream Request handler')
-    manager = VideoStreamManager(SignalHandler)
+    manager = VideoStreamManager()
 
     @classmethod
     async def handle(self, request):
         if request.request_type != 'stream_request':
             return
-                
+
         self.log.info('Handler started')
         self.log.debug('Put request to stream request queue')
-        await self.manager.stream_requesters.put(request)
-        return True        
-
-
-class VideoStreamSourceHandler(BaseHandler):
-
-    log = logging.getLogger('Video Stream Source handler')
-    manager = VideoStreamManager(SignalHandler)
-
-    @classmethod
-    async def handle(self, request):
-        if request.request_type != 'stream_source':
-            return        
-        
-        self.log.info('Handler started')
-        self.log.debug('Put request to stream source queue')
-        await self.manager.stream_sources.put(request)
+        await self.manager.requesters.put(request)
         return True
 
 
-class NewRecordHandler(BaseHandler):
-    log = logging.getLogger('New records')
+class VideoStreamResponseHandler(BaseHandler):
+
+    log = logging.getLogger('Video Stream Source handler')
+    manager = VideoStreamManager()
 
     @classmethod
     async def handle(self, request):
-        if request.request_type != 'new_record':
+        if request.request_type != 'stream_response':
             return
-        #if request.db_record:
-        #    method = NewRecordHandler
-        self.log.debug('Handler started')
-        if request.camera_name:
-            self.log.debug('Camera record method')
-            method = CameraRecord
 
-        result = b""
-        data = b""        
-        self.log.info('Receiving new records')
-        while True:                
-            data = await request.reader.read(100000)
-            result += data
-            if data == b"":
-                break                
+        self.log.info('Handler started')
+        self.log.debug('Put request to stream source queue')
+        await self.manager.responses.put(request)
+        return True
 
-        self.log.info('New records received')
+
+class VideoRequestHandler(BaseHandler):
+
+    log = logging.getLogger('Video Request')
+    manager = VideoRequestManager()
+
+    @classmethod
+    async def handle(self, request):
+        if request.request_type != 'video_request':
+            return
+
+        self.log.debug('Put video request to queue')
+        await self.manager.requesters.put(request)
+        return True
+
+
+class VideoResponseHandler(BaseHandler):
+
+    log = logging.getLogger('Video Response')
+    manager = VideoRequestManager()
+    video_save_path = '/home/app/web/mediafiles/'
+
+    @classmethod
+    async def save_file(self, name, data):
+        if GLOBAL_TEST:
+            return
+        async with aiofiles.open(name, mode="wb") as video:
+            await video.write(data)
+
+    @classmethod
+    async def handle(self, request):
+        if request.request_type != 'video_response':
+            return
+
+        self.log.info('Courutine started')
+        video_data = b""
+        data = b""
+
+        if request.video_size == 0:
+            builder = RequestBuilder().with_args(
+                request_type='video_reponse',
+                request_result='failure',
+                video_name=request.video_name)
+            response = builder.build()
+            await self.manager.responses.put(response)
+            self.log.error('No such video')
+            return True
+
+        try:
+            while len(video_data) < request.video_size:
+                data = await request.reader.read(SOCKET_BUFF_SIZE)
+                video_data += data
+                if data == b"":
+                    break
+        except asyncio.CancelledError:
+            pass
+        finally:
+            request.writer.close()
+            await request.writer.wait_closed()
+
+        if len(video_data) != request.video_size:
+            builder = RequestBuilder().with_args(
+                request_type='video_reponse',
+                request_result='failure',
+                video_name=request.video_name)
+            response = builder.build()
+            await self.manager.responses.put(response)
+            self.log.warning('Failed to receive video file')
+            return True
+
+        self.log.info('%s', self.video_save_path)
+        video_name_save = os.path.join(str(self.video_save_path)
+                                       + request.video_name.split('|')[0]
+                                       + '.mp4')
+
+        self.log.info('Saving file %s', video_name_save)
+        await self.save_file(video_name_save, video_data)
+        builder = RequestBuilder().with_args(
+            request_type='video_reponse',
+            request_result='success',
+            video_name=request.video_name)
+        response = builder.build()
+        await self.manager.responses.put(response)
+        self.log.info('File received')
+        return True
+
+
+class AproveUserRequestHandler(BaseHandler):
+
+    log = logging.getLogger('Aprove User Request Handler')
+    signal = SignalCollector()
+
+    @classmethod
+    async def handle(self, request):
+        if request.request_type != 'aprove_user_request':
+            return
+        self.log.debug('User Request processing %s', request)
+        await self.signal.signal_queue.put(request)
         request.writer.close()
         await request.writer.wait_closed()
-
-        records = result.decode().split('\n')
-        for record in records:
-            if record != "":
-                self.log.debug('RECORD:%s', record)
-                await method.save_queue.put(json.loads(record))
-        loop = asyncio.get_running_loop()
-        loop.create_task(method.save())
         return True

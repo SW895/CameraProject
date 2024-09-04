@@ -9,6 +9,14 @@ class Camera(models.Model):
         return self.camera_name
 
 
+class Camera(models.Model):
+    camera_name = models.CharField(max_length=50, primary_key=True)
+    is_active = models.BooleanField(default=False)
+
+    def __str__(self):
+        return self.camera_name
+
+
 class ArchiveVideo(models.Model):
     date_created = models.DateTimeField(blank=False)
     human_det = models.BooleanField(default=False)
@@ -22,6 +30,17 @@ class ArchiveVideo(models.Model):
     
     def get_fields(self):
         fields = [(field.name, getattr(self, field.name)) for field in ArchiveVideo._meta.fields]
+        remove_list = []
+        for id, field in enumerate(fields):
+            if field[0].find('_det') < 1:
+                remove_list.append(id)
+        for index in reversed(remove_list):
+            fields.remove(fields[index])
+        return fields
+
+    def get_fields(self):
+        fields = [(field.name, getattr(self, field.name))
+                  for field in ArchiveVideo._meta.fields]
         remove_list = []
         for id, field in enumerate(fields):
             if field[0].find('_det') < 1:
