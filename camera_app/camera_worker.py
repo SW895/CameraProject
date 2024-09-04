@@ -6,6 +6,8 @@ import threading
 import queue
 import logging
 import asyncio
+import torchvision
+import numpy
 from ultralytics import YOLO
 from datetime import (
     date,
@@ -17,6 +19,7 @@ from PyQt6.QtCore import (
     pyqtSlot
 )
 from PyQt6.QtGui import QImage
+from connection_client import NewRecordHandler
 from settings import (
     MAX_VIDEO_LENGTH,
     MODEL_PATH,
@@ -198,7 +201,8 @@ class DetectingObjects(FrameProcessing):
                 self._obj_detected = True
                 self.save_thread = SaveVideo(
                     self.resolution,
-                    self.camera_name
+                    self.camera_name,
+                    self._loop
                 )
                 th = threading.Thread(target=self.save_thread.run)
                 th.start()
@@ -225,7 +229,8 @@ class DetectingObjects(FrameProcessing):
         self._detection = {'car_det': False,
                            'cat_det': False,
                            'chiken_det': False,
-                           'human_det': False}
+                           'human_det': False,
+                           'camera_id': self.camera_name}
         self.video_length = 0
         self.frames_from_last_detection = 0
         self.save_thread = None
@@ -245,14 +250,17 @@ class NoDetecting(FrameProcessing):
 
 class SaveVideo:
 
-    def __init__(self, resolution, camera_name):
+    def __init__(self, resolution, camera_name, event_loop):
         self.resolution = resolution
         self.camera_name = camera_name
+        self.loop = event_loop
         self.frame_queue = queue.Queue()
         self._end_of_file = threading.Event()
+        self._record_updated = threading.Event()
         self._lock = threading.Lock()
         self.log = logging.getLogger('Save video')
         self.record = {}
+        self.record_handler = NewRecordHandler()
         self.save_path = SAVE_PATH / self.camera_name
         if not os.path.isdir(self.save_path):
             os.mkdir(self.save_path)
@@ -266,9 +274,10 @@ class SaveVideo:
     def update_record(self, detection):
         with self._lock:
             self.record.update(detection)
-        return self.record
+        self._record_updated.set()
 
     def run(self):
+        frames = []
         current_time = datetime.now(tz=TIMEZONE)
         self.record.update({'date_created': current_time.isoformat()})
         self.log.debug('Thread started')
@@ -282,12 +291,6 @@ class SaveVideo:
             current_time.strftime("%d_%m_%YT%H_%M_%S") + '.mp4'
         )
         self.log.debug('video name: %s', video_name)
-        out = cv2.VideoWriter(
-            video_name,
-            cv2.VideoWriter_fourcc(*'mp4v'),
-            FPS,
-            (self.resolution[0], self.resolution[1]),
-            isColor=True)
         while self.not_end_of_file():
             try:
                 frame = self.frame_queue.get(timeout=SAVE_FRAME_TIMEOUT)
@@ -298,5 +301,9 @@ class SaveVideo:
                     frame,
                     (self.resolution[0], self.resolution[1]))
                 frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2BGR)
-                out.write(frame)
-        out.release()
+                frames.append(frame)
+        torchvision.io.write_video(video_name, numpy.array(frames), FPS)
+        self._record_updated.wait()
+        self.log.debug('Put record to queue')
+        self.loop.call_soon_threadsafe(
+            self.record_handler.record_queue.put_nowait, self.record)

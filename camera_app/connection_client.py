@@ -2,13 +2,18 @@ import asyncio
 import logging
 import json
 import time
+import aiofiles
 from settings import (
     GET_SERVER_EVENTS_TIMEOUT,
     CAMERA_LIST,
     RECONNECTION_TIMEOUT,
+    MAX_RECORDS
 )
 from request_builder import RequestBuilder
-from utils import ConnectionMixin
+from utils import (
+    ConnectionMixin,
+    Singleton
+)
 from streaming import VideoStreamManager
 from PyQt6.QtCore import QObject, pyqtSignal
 
@@ -27,6 +32,7 @@ class ConnectionClient(ConnectionMixin, QObject):
         self.log.debug('CAMERA WORKERS %s', camera_workers_list)
         self.camera_list = camera_workers_list
         self.stream_manager = VideoStreamManager()
+        self.new_record_handler = NewRecordHandler()
         builder = RequestBuilder().with_args(request_type='signal')
         self.request = builder.build()
 
@@ -42,9 +48,14 @@ class ConnectionClient(ConnectionMixin, QObject):
         self.stream_manager.set_event_loop(self.loop)
         self.stream_manager.update_camera_list(self.camera_list)
         self.background_tasks.add(
-            self.loop.create_task(self.register_client()))
+            self.loop.create_task(self.register_client())
+        )
         self.background_tasks.add(
-            self.loop.create_task(self.stream_manager.run_manager()))
+            self.loop.create_task(self.stream_manager.run_manager())
+        )
+        self.background_tasks.add(
+            self.loop.create_task(self.new_record_handler.handle_new_records())
+        )
         for task in self.background_tasks:
             task.add_done_callback(self.background_tasks.discard)
         self.log.debug('Tasks added')
@@ -88,25 +99,6 @@ class ConnectionClient(ConnectionMixin, QObject):
         self.background_tasks.add(task)
         task.add_done_callback(self.background_tasks.discard)
 
-    async def send_records(self, request, records):
-        reader, writer = await self.connect_to_server(request)
-        if writer:
-            try:
-                writer.write(records.encode())
-                await writer.drain()
-            except (ConnectionResetError, BrokenPipeError):
-                self.log.error('Connection Error')
-            else:
-                reply = await reader.read(self.buff_size)
-                if reply:
-                    response = json.loads(reply.decode())
-                    if response['status'] == 'success':
-                        return True
-                writer.close()
-                await writer.wait_closed()
-                self.log.warning('Failed to register user')
-        return False
-
     async def get_server_events(self):
         while True:
             reader, writer = await self.connect_to_server(self.request)
@@ -142,3 +134,30 @@ class ConnectionClient(ConnectionMixin, QObject):
                 break
             messages += data
         return messages
+
+
+class NewRecordHandler(ConnectionMixin, metaclass=Singleton):
+
+    record_queue = asyncio.Queue()
+
+    async def handle_new_records(self):
+        records = ''
+        record_counter = 0
+        while True:
+            new_record = await self.record_queue.get()
+            logging.debug('GET NEW VIDEO RECORD')
+            records += (json.dumps(new_record) + '\n')
+            record_counter += 1
+            if record_counter > MAX_RECORDS:
+                logging.debug('SENDING NEW VIDEO RECORDS')
+                builder = RequestBuilder().with_args(
+                    request_type='new_video_record',
+                    record_size=len(records))
+                request = builder.build()
+                reply = await self.send_records(request,
+                                                records)
+                if not reply:
+                    async with aiofiles.open('db.json', mode="w") as file:
+                        await file.write(records)
+                records = ''
+                record_counter = 0

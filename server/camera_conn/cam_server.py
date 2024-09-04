@@ -6,13 +6,11 @@ from settings import SOCKET_BUFF_SIZE
 
 class AsyncServer:
 
-    handlers = []
-    buff_size = SOCKET_BUFF_SIZE
-
     def __init__(self, sock):
         self.sock = sock
         name = f'Server:{self.sock.getsockname()}'
         self.log = logging.getLogger(name)
+        self.handlers = []
 
     def add_handler(self, *args):
         for handler in args:
@@ -27,12 +25,12 @@ class AsyncServer:
             await self.server.serve_forever()
 
     async def router(self, reader, writer):
-        data = await reader.read(self.buff_size)
+        data = await reader.read(SOCKET_BUFF_SIZE)
         builder = RequestBuilder().with_args(writer=writer,
                                              reader=reader) \
                                   .with_bytes(data)
         request = builder.build()
-        self.log.info('Request received. Sending reply')
+        # self.log.info('Request received. Sending reply')
         reply = 'accepted'
         try:
             request.writer.write(reply.encode())
@@ -42,7 +40,7 @@ class AsyncServer:
             request.writer.close()
             await request.writer.wait_closed()
         else:
-            self.log.info('Start handler %s', request.request_type)
+            # self.log.info('Start handler %s', request.request_type)
             for handler in self.handlers:
                 result = await handler.handle(request)
                 if result:

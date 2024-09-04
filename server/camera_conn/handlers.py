@@ -1,4 +1,5 @@
 import asyncio
+import aiofiles
 import logging
 import json
 import os
@@ -29,14 +30,13 @@ class SignalHandler(BaseHandler):
     async def handle(self, request):
         if request.request_type != 'signal':
             return
-        self.log.debug('Signal handler started')
+        # self.log.debug('Signal handler started')
         await self.manager.client_queue.put(request)
         return True
 
 
 class NewRecordHandler(BaseHandler):
 
-    buff_size = SOCKET_BUFF_SIZE
     log = logging.getLogger('New records')
 
     @classmethod
@@ -69,7 +69,7 @@ class NewRecordHandler(BaseHandler):
         data = b""
         self.log.info('Receiving new records')
         while len(result) < request.record_size:
-            data = await request.reader.read(self.buff_size)
+            data = await request.reader.read(SOCKET_BUFF_SIZE)
             result += data
             if data == b"":
                 break
@@ -135,14 +135,15 @@ class VideoResponseHandler(BaseHandler):
 
     log = logging.getLogger('Video Response')
     manager = VideoRequestManager()
-    video_save_path = ''
-    buff_size = SOCKET_BUFF_SIZE
+    video_save_path = '/home/app/web/mediafiles/'
 
-    def save_file(name, data):
+    @classmethod
+    async def save_file(self, name, data):
         if GLOBAL_TEST:
             return
-        with open(name, "wb") as video:
-            video.write(data)
+        async with aiofiles.open(name, mode="wb") as video:
+            await video.write(data)
+        self.log.debug('AAAAAAAAAAAAAAAAAAAAAAAAAAA')
 
     @classmethod
     async def handle(self, request):
@@ -165,7 +166,7 @@ class VideoResponseHandler(BaseHandler):
 
         try:
             while len(video_data) < request.video_size:
-                data = await request.reader.read(self.buff_size)
+                data = await request.reader.read(SOCKET_BUFF_SIZE)
                 video_data += data
                 if data == b"":
                     break
@@ -190,11 +191,8 @@ class VideoResponseHandler(BaseHandler):
                                        + request.video_name.split('|')[0]
                                        + '.mp4')
 
-        self.log.info('Saving file')
-        save_coro = asyncio.to_thread(self.save_file,
-                                      video_name_save,
-                                      video_data)
-        await save_coro
+        self.log.info('Saving file %s', video_name_save)
+        await self.save_file(video_name_save, video_data)
         builder = RequestBuilder().with_args(
             request_type='video_reponse',
             request_result='success',

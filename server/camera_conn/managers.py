@@ -117,16 +117,13 @@ class VideoStreamManager(BaseManager, metaclass=SingletonMeta):
 
 class StreamChannel:
 
-    source_queue = asyncio.Queue()
-    consumer_list = []
-    source = None
-    task = None
-    buff_size = SOCKET_BUFF_SIZE
-    source_timeout = STREAM_SOURCE_TIMEOUT
-
     def __init__(self, camera_name):
         self.camera_name = camera_name
         self.log = logging.getLogger(self.camera_name)
+        self.source_queue = asyncio.Queue()
+        self.consumer_list = []
+        self.source = None
+        self.task = None
 
     def __eq__(self, other):
         SameObject = isinstance(other, self.__class__)
@@ -144,7 +141,7 @@ class StreamChannel:
         self.log.debug('CHANNEL STARTED')
         try:
             self.source = await asyncio.wait_for(self.source_queue.get(),
-                                                 self.source_timeout)
+                                                 STREAM_SOURCE_TIMEOUT)
         except TimeoutError:
             self.log.debug('SOURCE TIMEOUT')
             await self.clean_up()
@@ -152,7 +149,7 @@ class StreamChannel:
         self.source_queue.task_done()
         try:
             while self.consumer_list and self.source:
-                data = await self.source.reader.read(self.buff_size)
+                data = await self.source.reader.read(SOCKET_BUFF_SIZE)
                 if not data:
                     self.log.debug('Connection to camera lost')
                     raise asyncio.CancelledError
@@ -200,7 +197,6 @@ class VideoRequestManager(BaseManager, metaclass=SingletonMeta):
     requesters = asyncio.Queue()
     log = logging.getLogger('Video Request Manager')
     requested_videos = {}
-    garb_collector_timeout = GARB_COLLECTOR_TIMEOUT
 
     async def process_requesters(self):
         while True:
@@ -255,7 +251,7 @@ class VideoRequestManager(BaseManager, metaclass=SingletonMeta):
     async def garb_collector(self):
         while True:
             try:
-                await asyncio.sleep(self.garb_collector_timeout)
+                await asyncio.sleep(GARB_COLLECTOR_TIMEOUT)
                 task_done_list = []
                 for request in self.requested_videos:
                     if self.requested_videos[request].task_done:
@@ -268,16 +264,14 @@ class VideoRequestManager(BaseManager, metaclass=SingletonMeta):
 
 class VideoRequest:
 
-    task_done = False
-    response_queue = asyncio.Queue()
-    response = None
-    requesters = []
-    response_timeout = VIDEO_REQUEST_TIMEOUT
-    task = None
-
     def __init__(self, video_name):
         self.video_name = video_name
         self.log = logging.getLogger(self.video_name)
+        self.task_done = False
+        self.task = None
+        self.response_queue = asyncio.Queue()
+        self.response = None
+        self.requesters = []
 
     def __eq__(self, other):
         SameObject = isinstance(other, self.__class__)
@@ -294,7 +288,7 @@ class VideoRequest:
     async def process_request(self):
         try:
             response = await asyncio.wait_for(self.response_queue.get(),
-                                              self.response_timeout)
+                                              VIDEO_REQUEST_TIMEOUT)
         except TimeoutError:
             self.log.debug('Response TIMEOUT')
             self.response = 'timeout_error'
@@ -330,11 +324,11 @@ class SignalCollector(BaseManager, metaclass=SingletonMeta):
                 break
 
             if not (client.client_id in self.clients):
-                self.log.debug('Client does not exist: %s', client.client_id)
+                # self.log.debug('Client does not exist: %s', client.client_id)
                 continue
             else:
                 self.clients[client.client_id].update_connection(client)
-                self.log.debug('Client exists')
+                # self.log.debug('Client exists')
             self.clients[client.client_id].task = self.loop.create_task(
                 self.clients[client.client_id].handle_signals())
 
@@ -357,13 +351,12 @@ class SignalCollector(BaseManager, metaclass=SingletonMeta):
 
 class Client:
 
-    dead = False
-    task = None
-    signal_queue = asyncio.Queue()
-
     def __init__(self, client_id):
         self.client_id = client_id
         self.log = logging.getLogger(self.client_id)
+        self.signal_queue = asyncio.Queue()
+        self.dead = False
+        self.task = None
 
     def __eq__(self, other):
         SameObject = isinstance(other, self.__class__)
@@ -394,8 +387,8 @@ class Client:
                 self.log.error('Connection to client lost, %s', error)
                 break
 
-        self.log.info('No more new events')
+        # self.log.info('No more new events')
         self.writer.close()
         await self.writer.wait_closed()
-        self.log.debug('Session ended')
+        # self.log.debug('Session ended')
         self.task = None

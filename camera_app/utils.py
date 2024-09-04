@@ -1,4 +1,5 @@
 import asyncio
+from request_builder import RequestBuilder
 from settings import (
     SOCKET_BUFF_SIZE,
     SERVER_HOST,
@@ -44,12 +45,30 @@ class ConnectionMixin:
             return reader, writer
         return None, None
 
+    async def send_records(self, request, records):
+        reader, writer = await self.connect_to_server(request)
+        if writer:
+            try:
+                writer.write(records.encode())
+                await writer.drain()
+            except (ConnectionResetError, BrokenPipeError):
+                self.log.error('Connection Error')
+            else:
+                reply = await reader.read(self.buff_size)
+                if reply:
+                    builder = RequestBuilder().with_bytes(reply)
+                    response = builder.build()
+                    if response.status == 'success':
+                        return True
+                writer.close()
+                await writer.wait_closed()
+        return False
+
 
 class ErrorAfter(object):
     '''
     Callable that will raise `CallableExhausted`
     exception after `limit` calls
-
     '''
     def __init__(self, limit, return_value):
         self.limit = limit

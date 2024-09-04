@@ -58,22 +58,11 @@ class AproveUserHandler(BaseClientHandler):
             request_type='aprove_user_response',
             record_size=len(record))
         request = builder.build()
-        reader, writer = await self.connect_to_server(request)
         serialized_record = json.dumps(record) + '\n'
-        if writer:
-            try:
-                writer.write(serialized_record.encode())
-                await writer.drain()
-            except (ConnectionResetError, BrokenPipeError):
-                self.log.error('Connection Error')
-            else:
-                reply = await reader.read(self.buff_size)
-                response = json.loads(reply.decode())
-                if response['status'] == 'success':
-                    if EMAIL_ENABLED:
-                        self.send_email(username, email, result)
-                writer.close()
-                await writer.wait_closed()
+        reply = await self.send_records(request, serialized_record)
+        if reply:
+            if EMAIL_ENABLED:
+                self.send_email(username, email, result)
 
     # TODO MAKE ASYNC
     def send_email(self, username, email, result):

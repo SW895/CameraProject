@@ -87,10 +87,7 @@ class VideoDetailView(LoginRequiredMixin, generic.DetailView):
         timeout = int(os.environ.get('CACHE_TIMEOUT', '60'))
         context = super(VideoDetailView, self).get_context_data(**kwargs)
         video = ArchiveVideo.objects.get(pk=self.kwargs['pk'])
-    #   video_name = localtime(video.date_created)
-        logging.critical('%s', video.date_created)
         video_name = localtime(video.date_created).strftime("%d_%m_%YT%H_%M_%S")
-        logging.critical('%s', video_name)
         request = {'request_type': 'video_request',
                    'video_name': (video_name + '|' + video.camera.camera_name)}
         if cache.get(video_name):
@@ -104,6 +101,7 @@ class VideoDetailView(LoginRequiredMixin, generic.DetailView):
                 record = CachedVideo(name=video_name,
                                      date_expire=datetime.now(tz=timezone) + timedelta(seconds=timeout))
                 record.save()
+                context['video_name'] = video_name
             else:
                 context['video_name'] = None
             return context
@@ -112,11 +110,14 @@ class VideoDetailView(LoginRequiredMixin, generic.DetailView):
         sock = self.connect_to_server()
         sock.send(json.dumps(request).encode())
         reply = sock.recv(1024)
-        sock.close()
-
-        if reply.decode() == 'success':
-            return True
+        logging.critical(reply.decode())
+        if reply.decode() == 'accepted':
+            reply = sock.recv(1024)
+            if reply.decode() == 'success':
+                sock.close()
+                return True
         else:
+            sock.close()
             return False
 
     def connect_to_server(self):
