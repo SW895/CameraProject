@@ -283,17 +283,17 @@ class TestUserRecord(TransactionTestCase):
                               'username': 'username_2'}
         self.corrupted_record = {'corrupted'}
         self.pk_accepted = User.objects.create_user(
-                         username='username_1',
-                         email='1@mail.ru',
-                         password='123',
-                         is_active=False,
-                         admin_checked=False).pk
+            username='username_1',
+            email='1@mail.ru',
+            password='123',
+            is_active=False,
+            admin_checked=False).pk
         self.pk_denied = User.objects.create_user(
-                         username='username_2',
-                         email='2@mail.ru',
-                         password='123',
-                         is_active=False,
-                         admin_checked=False).pk
+            username='username_2',
+            email='2@mail.ru',
+            password='123',
+            is_active=False,
+            admin_checked=False).pk
 
     @async_to_sync
     async def test_accept_user(self):

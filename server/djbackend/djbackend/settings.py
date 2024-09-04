@@ -15,7 +15,7 @@ STATIC_URL = 'static/'
 STATIC_ROOT = BASE_DIR / 'staticfiles'
 
 INSTALLED_APPS = [
-    'daphne',    
+    'daphne',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -25,7 +25,7 @@ INSTALLED_APPS = [
 
     'main.apps.MainConfig',
     'registration.apps.RegistrationConfig',
-    'channels',    
+    'channels',
 ]
 
 MIDDLEWARE = [
@@ -58,21 +58,26 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'djbackend.wsgi.application'
-#Daphne
+
+# Daphne
 ASGI_APPLICATION = 'djbackend.asgi.application'
 
 AUTH_PASSWORD_VALIDATORS = [
     {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+        'NAME': 'django.contrib.auth.password_validation.\
+                UserAttributeSimilarityValidator',
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        'NAME': 'django.contrib.auth.password_validation.\
+                MinimumLengthValidator',
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
+        'NAME': 'django.contrib.auth.password_validation.\
+                CommonPasswordValidator',
     },
     {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
+        'NAME': 'django.contrib.auth.password_validation.\
+                NumericPasswordValidator',
     },
 ]
 
@@ -89,7 +94,8 @@ LOGIN_REDIRECT_URL = '/'
 DATABASES = {
     'default':
     {
-        'ENGINE': os.environ.get('POSTGRES_ENGINE', 'django.db.backends.postgresql'),
+        'ENGINE': os.environ.get('POSTGRES_ENGINE',
+                                 'django.db.backends.postgresql'),
         'NAME': os.environ.get('POSTGRES_DB', 'dj_test'),
         'USER': os.environ.get('POSTGRES_USER', 'test_dj'),
         'PASSWORD': os.environ.get('POSTGRES_PASSWORD', '123'),
@@ -112,10 +118,10 @@ CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
         "LOCATION": 'redis://{}:{}@{}:{}'.format(
-                        os.environ.get('REDIS_USER', 'default'),
-                        os.environ.get('REDIS_PASSWORD', '123'),
-                        os.environ.get('REDIS_HOST', '127.0.0.1'),
-                        os.environ.get('REDIS_PORT', '6379'))
+            os.environ.get('REDIS_USER', 'default'),
+            os.environ.get('REDIS_PASSWORD', '123'),
+            os.environ.get('REDIS_HOST', '127.0.0.1'),
+            os.environ.get('REDIS_PORT', '6379'))
     }
 }
 

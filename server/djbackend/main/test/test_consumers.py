@@ -13,48 +13,60 @@ class TestVideoStream(SimpleTestCase):
         manager = Mock()
         get_frame.return_value = b'frame'
         application = URLRouter([
-            path("testws/stream/<str:camera_name>/", VideoStreamConsumer.as_asgi(manager=manager))
+            path("testws/stream/<str:camera_name>/",
+                 VideoStreamConsumer.as_asgi(manager=manager))
         ])
-        self.communicator = WebsocketCommunicator(application, '/testws/stream/test/')
+        self.communicator = WebsocketCommunicator(
+            application,
+            '/testws/stream/test/'
+        )
         connected, subprotocol = await self.communicator.connect()
         response = await self.communicator.receive_from()
         self.assertEqual(response, 'frame')
         manager.consumer_queue.put.assert_called_once()
         await self.communicator.disconnect()
-    
+
     @patch('main.consumers.VideoStreamConsumer.get_frame')
     async def test_pause_stream(self, get_frame):
         manager = Mock()
         get_frame.return_value = b'frame'
         application = URLRouter([
-            path("testws/stream/<str:camera_name>/", VideoStreamConsumer.as_asgi(manager=manager))
+            path("testws/stream/<str:camera_name>/",
+                 VideoStreamConsumer.as_asgi(manager=manager))
         ])
-        self.communicator = WebsocketCommunicator(application, '/testws/stream/test/')
+        self.communicator = WebsocketCommunicator(
+            application,
+            '/testws/stream/test/'
+        )
         connected, subprotocol = await self.communicator.connect()
         await self.communicator.send_json_to({"signal": "pause"})
         response = None
         try:
             response = await self.communicator.receive_from()
-        except:
+        except Exception:
             pass
         self.assertIsNone(response)
         manager.consumer_queue.put.assert_called_once()
         await self.communicator.disconnect()
-    
+
     @patch('main.consumers.VideoStreamConsumer.get_frame')
     async def test_pause_and_play_stream(self, get_frame):
         manager = Mock()
         get_frame.return_value = b'frame'
         application = URLRouter([
-            path("testws/stream/<str:camera_name>/", VideoStreamConsumer.as_asgi(manager=manager))
+            path("testws/stream/<str:camera_name>/",
+                 VideoStreamConsumer.as_asgi(manager=manager))
         ])
-        self.communicator = WebsocketCommunicator(application, '/testws/stream/test/')
+        self.communicator = WebsocketCommunicator(
+            application,
+            '/testws/stream/test/'
+        )
         connected, subprotocol = await self.communicator.connect()
         await self.communicator.send_json_to({"signal": "pause"})
         response = None
         try:
             response = await self.communicator.receive_from()
-        except:
+        except Exception:
             pass
         self.assertIsNone(response)
         await self.communicator.send_json_to({"signal": "play"})
@@ -62,4 +74,3 @@ class TestVideoStream(SimpleTestCase):
         self.assertEqual(response, 'frame')
         manager.consumer_queue.put.assert_called_once()
         await self.communicator.disconnect()
-

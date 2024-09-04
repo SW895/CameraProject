@@ -10,10 +10,13 @@ import pytz
 @app.task
 def clean_expired_records():
     timezone = pytz.timezone('Europe/Moscow')
-    records = CachedVideo.objects.filter(date_expire__lt=datetime.datetime.now(tz=timezone))
+    records = CachedVideo.objects.filter(
+        date_expire__lt=datetime.datetime.now(tz=timezone)
+    )
     for record in records:
-        if os.path.exists(str(settings.MEDIA_ROOT) + '/' + record.name + '.mp4'):
-            os.remove(str(settings.MEDIA_ROOT) + '/' + record.name + '.mp4')
+        video_path = str(settings.MEDIA_ROOT) + '/' + record.name + '.mp4'
+        if os.path.exists(video_path):
+            os.remove(video_path)
 
     records.delete()
 
@@ -35,5 +38,6 @@ def update_cache(video_name, timeout=60):
     timezone = pytz.timezone('Europe/Moscow')
     cache.set(video_name, True, timeout=timeout)
     record = CachedVideo.objects.get(name=video_name)
-    record.date_expire = datetime.datetime.now(tz=timezone) + datetime.timedelta(seconds=timeout)
+    record.date_expire = datetime.datetime.now(tz=timezone) \
+        + datetime.timedelta(seconds=timeout)
     record.save()

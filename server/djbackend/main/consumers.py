@@ -45,7 +45,7 @@ class VideoStreamConsumer(WebsocketConsumer):
     def get_frame(self):
         try:
             frame = self.frame.get(timeout=5)
-        except Exception as error:
+        except Exception:
             self.pause_stream()
             return None
         else:
@@ -58,7 +58,7 @@ class VideoStreamConsumer(WebsocketConsumer):
             if frame:
                 try:
                     self.send(frame.decode('utf-8'))
-                except Exception as error:
+                except Exception:
                     self.pause_stream()
 
     @new_thread
