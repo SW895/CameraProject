@@ -1,7 +1,7 @@
 ### Description
 Video streaming Django application. Consist of 3 parts:
 
-1. /camera_app/: PyQt6 application for local computer. Process videostream and detecting objects utilizing Ultralytics YOLOv8. If any object detected saves video. Connecting to server/camera_conn/
+1. /camera_app/: PyQt6 application for local computer. Process videostream and detecting objects utilizing [Ultralytics YOLOv8](https://github.com/ultralytics/ultralytics). If any object detected saves video. Connecting to server/camera_conn/
 2. /server/camera_conn/: Microservice connecting camera_app and Django website
 3. /server/djbackend/: Django website with opportunuties to watch live camera videostream, and get access to archive of recorded videos.
 
@@ -17,17 +17,31 @@ docker-compose -f server/docker-compose.prod.yaml up -d --build
 Your app should now be running on localhost:1337.
 
 > [!NOTE] 
-> In order to be able to watch videostream and get arhive video you should also run camera application.
+> In order to be able to watch videostream, get arhive video and aproving registration you should also run camera application.
 > 
 >```
 >python camera_app/run_app.py
 >```
 
-Detection enabled by default.
-By default will use web-camera. If you want to specify camera:
-    1. Go to camera_app/settings.cfg
-    2. Find section [CAMERA_LIST]
-    3. replace default with format: your_camera_name=your_camera_source
+> [!IMPORTANT]
+> * Detection enabled by default.
+> * All users are allowed to register by default.
+> * By default application will use USB web-camera or builtin. 
+> * Camera application settings located at: /camera_app/settings.cfg
+
+> [!TIP]
+> Specify camera:
+> 1. In camera application settings section [CAMERA_LIST]
+> 2. Replace default with format: 
+> ```
+> your_camera_name=your_camera_source
+> ```
+
+> [!TIP]
+> Specify allowed users:
+> 1. In camera application settings section [USER_LIST]
+> 2. Set ALLOWED_ALL to 0
+> 3. Add allowed usernames to APROVED_USER_LIST divided by space
 
 ### Technology stack:
 
