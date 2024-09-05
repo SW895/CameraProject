@@ -1,4 +1,5 @@
 import pytz
+import os
 import logging
 import configparser
 from pathlib import Path
@@ -9,7 +10,11 @@ logging.basicConfig(
     datefmt="%Y-%m-%dT%H:%M:%S",)
 
 base_dir = Path(__file__).resolve().parent.parent
+
 SAVE_PATH = base_dir / 'video_archive/'
+if not os.path.isdir(SAVE_PATH):
+    os.mkdir(SAVE_PATH)
+
 MODEL_PATH = base_dir / 'camera_app/weights/test_weights.pt'
 TIMEZONE = pytz.timezone('Europe/Moscow')
 
