@@ -8,20 +8,20 @@ Online video streaming DJANGO APP.
 3. /server/djbackend/: Django website with opportunuties to watch live camera videostream, and get access to archive of recorded videos.
 
 ### Running Locally
-'''
+```
 git clone https://github.com/SW895/CameraProject
 pip install -r requirements.txt
-'''
+```
 run server:
-'''
+```
 docker-compose -f server/docker-compose.prod.yaml up -d --build
-'''
+```
 Your app should now be running on localhost:1337.
 
 run camera app:
-'''
+```
 python run_app.py
-'''
+```
 
 ### Technology stack:
 
