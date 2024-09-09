@@ -57,7 +57,8 @@ Your app should now be running on `localhost:1337` (by default).
 
 * PyQt6
 * YOLOv8
-* Dajngo
+* Django
 * Celery
 * Redis
 * PostgreSQL
+* PyTest
