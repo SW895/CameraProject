@@ -61,4 +61,4 @@ Your app should now be running on `localhost:1337` (by default).
 * Celery
 * Redis
 * PostgreSQL
-* PyTest
+* pytest
