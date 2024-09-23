@@ -3,11 +3,13 @@ import psycopg
 import logging
 from psycopg import sql
 from request_builder import RequestBuilder
-from settings import (DB_HOST,
-                      DB_NAME,
-                      DB_PASSWORD,
-                      DB_PORT,
-                      DB_USER)
+from settings import (
+    DB_HOST,
+    DB_NAME,
+    DB_PASSWORD,
+    DB_PORT,
+    DB_USER
+)
 
 
 class BaseRecordHandler:
@@ -68,12 +70,16 @@ class NewVideoRecord(BaseRecordHandler):
 
     async def save_record(self, record):
         columns = record.keys()
-        values = sql.SQL(',').join([record[column] for column in columns])
-        fields = sql.SQL(',').join([sql.Identifier(column)
-                                    for column in columns])
-        ret = sql.SQL('INSERT INTO main_archivevideo({fields}) \
-                       VALUES ({values});').format(fields=fields,
-                                                   values=values,)
+        values = sql.SQL(',').join(
+            [record[column] for column in columns]
+        )
+        fields = sql.SQL(',').join(
+            [sql.Identifier(column) for column in columns]
+        )
+        ret = sql.SQL(
+            "INSERT INTO main_archivevideo({fields}) \
+            VALUES ({values});"
+        ).format(fields=fields, values=values,)
         await self.cur.execute(ret)
 
 
@@ -83,26 +89,30 @@ class CameraRecord(BaseRecordHandler):
 
     async def save(self):
         await self.get_db_connection()
-        if self.db_conn:
-            await self.set_all_cameras_to_inactive()
-            await self.process_records()
-        return 'Failed to connect to DB'
+        if not self.db_conn:
+            return 'Failed to connect to DB'
+        await self.set_all_cameras_to_inactive()
+        await self.process_records()
 
     async def save_record(self, record):
-        await self.cur.execute("INSERT INTO \
-                                main_camera (camera_name, is_active) \
-                                VALUES (%s, True) \
-                                ON CONFLICT (camera_name) \
-                                DO UPDATE \
-                                SET is_active=True;",
-                               (record['camera_name'],))
+        await self.cur.execute(
+            "INSERT INTO \
+            main_camera (camera_name, is_active) \
+            VALUES (%s, True) \
+            ON CONFLICT (camera_name) \
+            DO UPDATE \
+            SET is_active=True;",
+            (record['camera_name'],)
+        )
         self.log.info('Camera %s activated', record['camera_name'])
 
     async def set_all_cameras_to_inactive(self):
         try:
-            await self.cur.execute("UPDATE main_camera \
-                                   SET is_active=False \
-                                   WHERE is_active=True;")
+            await self.cur.execute(
+                "UPDATE main_camera \
+                SET is_active=False \
+                WHERE is_active=True;"
+            )
         except (Exception, psycopg.Error):
             self.log.error('No records')
         else:
@@ -117,17 +127,21 @@ class UserRecord(BaseRecordHandler):
 
     async def save_record(self, record):
         if record['request_result'] == 'aproved':
-            await self.cur.execute("UPDATE registration_customuser \
-                                    SET is_active=True, admin_checked=True \
-                                    WHERE username=(%s);",
-                                   (record['username'],))
+            await self.cur.execute(
+                "UPDATE registration_customuser \
+                SET is_active=True, admin_checked=True \
+                WHERE username=(%s);",
+                (record['username'],)
+            )
             self.log.info('User %s successfully activated',
                           record['username'])
         else:
-            await self.cur.execute("UPDATE registration_customuser \
-                                    SET admin_checked=True \
-                                    WHERE username=(%s);",
-                                   (record['username'],))
+            await self.cur.execute(
+                "UPDATE registration_customuser \
+                SET admin_checked=True \
+                WHERE username=(%s);",
+                (record['username'],)
+            )
             self.log.info('User %s denied', record['username'])
 
 
@@ -144,9 +158,11 @@ class ActiveCameras:
             return []
 
         self.log.info('Successfully connected to db')
-        await self.cur.execute("SELECT camera_name \
-                          FROM main_camera \
-                          WHERE is_active=True")
+        await self.cur.execute(
+            "SELECT camera_name \
+            FROM main_camera \
+            WHERE is_active=True"
+        )
         active_cameras = await self.cur.fetchall()
         await self.cur.close()
         await self.db_conn.close()
@@ -160,7 +176,8 @@ async def connect_to_db():
             user=DB_USER,
             password=DB_PASSWORD,
             host=DB_HOST,
-            port=DB_PORT)
+            port=DB_PORT
+        )
     except Exception as error:
         logging.error('FAILED TO CONNECT TO DB: %s', error)
         return None, None

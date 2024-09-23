@@ -39,7 +39,6 @@ class ServerRequest:
 
 
 class RequestBuilder:
-    args = {}
 
     def __init__(self):
         self.args = {}

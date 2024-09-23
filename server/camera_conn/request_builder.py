@@ -1,4 +1,5 @@
 import json
+import time
 
 
 class ServerRequest:
@@ -39,7 +40,6 @@ class ServerRequest:
 
 
 class RequestBuilder:
-    args = {}
 
     def __init__(self):
         self.args = {}
@@ -59,6 +59,10 @@ class RequestBuilder:
             self.args.update(args)
         return self
 
+    def with_time(self, time):
+        self.args.update({'created': time})
+
     def build(self):
+        self.with_time(time.time())
         self._product.add(**self.args)
         return self._product

@@ -26,9 +26,11 @@ class AsyncServer:
 
     async def router(self, reader, writer):
         data = await reader.read(SOCKET_BUFF_SIZE)
-        builder = RequestBuilder().with_args(writer=writer,
-                                             reader=reader) \
-                                  .with_bytes(data)
+        builder = RequestBuilder() \
+            .with_args(
+                writer=writer,
+                reader=reader) \
+            .with_bytes(data)
         request = builder.build()
         self.log.debug('Request received. Sending reply')
         reply = 'accepted'

@@ -1,11 +1,15 @@
 import asyncio
 import logging
+import time
 from camera_utils import SingletonMeta
 from request_builder import RequestBuilder
-from settings import (SOCKET_BUFF_SIZE,
-                      STREAM_SOURCE_TIMEOUT,
-                      VIDEO_REQUEST_TIMEOUT,
-                      GARB_COLLECTOR_TIMEOUT)
+from settings import (
+    SOCKET_BUFF_SIZE,
+    STREAM_SOURCE_TIMEOUT,
+    VIDEO_REQUEST_TIMEOUT,
+    GARB_COLLECTOR_TIMEOUT,
+    REQUEST_LIFETIME
+)
 
 
 class BaseManager:
@@ -19,11 +23,14 @@ class BaseManager:
         self.log.info('Starting manager')
         self.loop = asyncio.get_running_loop()
         self.background_tasks.add(
-            self.loop.create_task(self.process_requesters()))
+            self.loop.create_task(self.process_requesters())
+        )
         self.background_tasks.add(
-            self.loop.create_task(self.process_responses()))
+            self.loop.create_task(self.process_responses())
+        )
         self.background_tasks.add(
-            self.loop.create_task(self.garb_collector()))
+            self.loop.create_task(self.garb_collector())
+        )
         for task in self.background_tasks:
             task.add_done_callback(self.background_tasks.discard)
 
@@ -107,7 +114,8 @@ class VideoStreamManager(BaseManager, metaclass=SingletonMeta):
             self.log.debug('Sending stream request')
             builder = RequestBuilder().with_args(
                 request_type='stream_request',
-                camera_name=channel.camera_name)
+                camera_name=channel.camera_name
+            )
             request = builder.build()
             await self.send_request(request)
             self.log.debug('START COURUTINE')
@@ -140,8 +148,10 @@ class StreamChannel:
     async def run_channel(self):
         self.log.debug('CHANNEL STARTED')
         try:
-            self.source = await asyncio.wait_for(self.source_queue.get(),
-                                                 STREAM_SOURCE_TIMEOUT)
+            self.source = await asyncio.wait_for(
+                self.source_queue.get(),
+                STREAM_SOURCE_TIMEOUT
+            )
         except TimeoutError:
             self.log.debug('SOURCE TIMEOUT')
             await self.clean_up()
@@ -180,8 +190,10 @@ class StreamChannel:
 
         if self.consumer_list:
             for consumer in self.consumer_list:
-                self.log.debug('CLOSING CONNECTION TO CONSUMER %s',
-                               consumer.writer.get_extra_info('peername'))
+                self.log.debug(
+                    'CLOSING CONNECTION TO CONSUMER %s',
+                    consumer.writer.get_extra_info('peername')
+                )
                 consumer.writer.close()
                 await consumer.writer.wait_closed()
                 self.consumer_list.remove(consumer)
@@ -212,7 +224,8 @@ class VideoRequestManager(BaseManager, metaclass=SingletonMeta):
                 current_request = self.requested_videos[requester.video_name]
             except KeyError:
                 current_request = await self.create_new_request(
-                    requester.video_name)
+                    requester.video_name
+                )
             else:
                 self.log.debug('Video request alredy created')
             self.log.debug('Add requester to list')
@@ -222,10 +235,13 @@ class VideoRequestManager(BaseManager, metaclass=SingletonMeta):
         self.requested_videos[video_name] = VideoRequest(video_name)
         current_request = self.requested_videos[video_name]
         current_request.task = self.loop.create_task(
-            current_request.process_request())
+            current_request.process_request()
+        )
         self.log.debug('Created video request')
-        builder = RequestBuilder().with_args(request_type='video_request',
-                                             video_name=video_name)
+        builder = RequestBuilder().with_args(
+            request_type='video_request',
+            video_name=video_name
+        )
         request = builder.build()
         await self.send_request(request)
         return current_request
@@ -287,8 +303,10 @@ class VideoRequest:
 
     async def process_request(self):
         try:
-            response = await asyncio.wait_for(self.response_queue.get(),
-                                              VIDEO_REQUEST_TIMEOUT)
+            response = await asyncio.wait_for(
+                self.response_queue.get(),
+                VIDEO_REQUEST_TIMEOUT
+            )
         except TimeoutError:
             self.log.debug('Response TIMEOUT')
             self.response = 'timeout_error'
@@ -313,7 +331,6 @@ class SignalCollector(BaseManager, metaclass=SingletonMeta):
     client_queue = asyncio.Queue()
     log = logging.getLogger('Signal manager')
     clients = {}
-    garb_collector_timeout = GARB_COLLECTOR_TIMEOUT
 
     async def process_requesters(self):  # register clients
         self.clients['main'] = Client('main')
@@ -366,9 +383,9 @@ class Client:
             return True
         return False
 
-    def update_connection(self, client):
-        self.writer = client.writer
-        self.reader = client.reader
+    def update_connection(self, new_connection):
+        self.writer = new_connection.writer
+        self.reader = new_connection.reader
 
     async def handle_signals(self):
         while self.signal_queue.qsize() > 0:
@@ -379,6 +396,8 @@ class Client:
                 self.log.debug('Courutine cancelled')
                 break
             self.signal_queue.task_done()
+            if (signal.created - time.time()) > REQUEST_LIFETIME:
+                continue
             self.log.info('Sending signal')
             try:
                 self.writer.write(signal.serialize().encode())
