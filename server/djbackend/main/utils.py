@@ -101,7 +101,10 @@ class VideoStreamSource:
             'camera_name': self.camera_name
         }
         self.stream_socket.send(json.dumps(msg).encode())
-        return True
+        reply = self.stream_socket.recv(65536)
+        if reply.decode == 'accepted':
+            return True
+        return False
 
     @new_thread
     def stream_source(self):

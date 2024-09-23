@@ -47,8 +47,9 @@ def archive_view(request):
     page_number = 1
     for field in ArchiveVideo._meta.get_fields():
         if field.name.find('_det') > 0:
-            det_fields.append((field.name,
-                               field.name.removesuffix('_det').title()))
+            det_fields.append(
+                (field.name, field.name.removesuffix('_det').title())
+            )
 
     if request.GET:
         params = request.GET.dict()
@@ -77,7 +78,7 @@ def archive_view(request):
         }
     )
 
-import logging
+
 class VideoDetailView(LoginRequiredMixin, generic.DetailView):
     model = ArchiveVideo
     template_name = 'main/archivevideo_detail.html'
@@ -89,8 +90,10 @@ class VideoDetailView(LoginRequiredMixin, generic.DetailView):
         video = ArchiveVideo.objects.get(pk=self.kwargs['pk'])
         video_name = localtime(video.date_created)\
             .strftime("%d_%m_%YT%H_%M_%S")
-        request = {'request_type': 'video_request',
-                   'video_name': (video_name + '|' + video.camera.camera_name)}
+        request = {
+            'request_type': 'video_request',
+            'video_name': (video_name + '|' + video.camera.camera_name)
+        }
         if cache.get(video_name):
             context['video_name'] = video_name
             update_cache(video_name, timeout)
@@ -102,7 +105,8 @@ class VideoDetailView(LoginRequiredMixin, generic.DetailView):
                 record = CachedVideo(
                     name=video_name,
                     date_expire=datetime.now(tz=timezone)
-                    + timedelta(seconds=timeout))
+                    + timedelta(seconds=timeout)
+                )
                 record.save()
                 context['video_name'] = video_name
             else:
@@ -126,8 +130,10 @@ class VideoDetailView(LoginRequiredMixin, generic.DetailView):
     def connect_to_server(self):
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
-            sock.connect((os.environ.get('INTERNAL_HOST', '127.0.0.1'),
-                          int(os.environ.get('INTERNAL_PORT', 20900))))
+            sock.connect(
+                (os.environ.get('INTERNAL_HOST', '127.0.0.1'),
+                 int(os.environ.get('INTERNAL_PORT', 20900)))
+            )
         except socket.error:
             sock.close()
             return None

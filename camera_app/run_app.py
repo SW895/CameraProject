@@ -24,7 +24,10 @@ from connection_handlers import (
     StreamHandler
 )
 from settings import (
-    CAMERA_LIST
+    CAMERA_LIST,
+    BASE_DIR,
+    QT_VIDEO_WIDTH,
+    QT_VIDEO_HEIGHT
 )
 from camera_worker import CameraWorker
 
@@ -57,9 +60,16 @@ class MainWindow(QMainWindow):
     def init_camera_labels(self):
         row = 0
         column = 0
-        for camera in CAMERA_LIST:
+        slots = (list(CAMERA_LIST.keys())
+                 + [None for i in range(3 - len(CAMERA_LIST) % 3)])
+        for camera in slots:
             current_label = QLabel(self)
-            self.camera_labels.update({camera: current_label})
+            current_label.setPixmap(
+                QPixmap(f'{BASE_DIR}/test.jpg').scaled(QT_VIDEO_WIDTH,
+                                                       QT_VIDEO_HEIGHT)
+            )
+            if camera:
+                self.camera_labels.update({camera: current_label})
             self.central_widget_layout.addWidget(
                 current_label,
                 row,
@@ -67,20 +77,21 @@ class MainWindow(QMainWindow):
                 alignment=Qt.AlignmentFlag.AlignCenter
             )
 
-            current_button = QPushButton('Enable Detection')
-            self.buttons.update({camera: current_button})
-            current_button.setCheckable(True)
-            current_button.toggle()
-            current_button.clicked.connect(self.enable_det)
-            self.central_widget_layout.addWidget(
-                current_button,
-                row + 1,
-                column,
-                alignment=Qt.AlignmentFlag.AlignCenter
-            )
-            if column > 4:
+            #current_button = QPushButton('Enable Detection')
+            #self.buttons.update({camera: current_button})
+            #current_button.setCheckable(True)
+            #current_button.toggle()
+            #current_button.clicked.connect(self.enable_det)
+            #self.central_widget_layout.addWidget(
+            #    current_button,
+            #    row + 1,
+            #    column,
+            #    alignment=Qt.AlignmentFlag.AlignCenter
+            #)
+            column += 1
+            if column > 3:
                 column = 0
-                row += 2
+                row += 1
 
     def init_network_thread(self):
         self.client = ConnectionClient(camera_workers_list=self.camera_workers)
@@ -143,6 +154,7 @@ class MainWindow(QMainWindow):
     @pyqtSlot(QImage, str)
     def setFrame(self, frame, camera_name):
         self.camera_labels[camera_name].setPixmap(QPixmap.fromImage(frame))
+        pass
 
     @pyqtSlot(bool)
     def update_connection_status(self, status):

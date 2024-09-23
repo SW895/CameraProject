@@ -29,7 +29,9 @@ from settings import (
     SAVE_PATH,
     SAVE_FRAME_TIMEOUT,
     NO_DETECTION_LEN,
-    FPS
+    FPS,
+    QT_VIDEO_WIDTH,
+    QT_VIDEO_HEIGHT,
 )
 
 
@@ -159,7 +161,7 @@ class FrameProcessing:
             bytesPerLine,
             QImage.Format.Format_RGB888
         )
-        return convertToQtFormat.scaled(self.resolution[0], self.resolution[1])
+        return convertToQtFormat.scaled(QT_VIDEO_WIDTH, QT_VIDEO_HEIGHT)
 
     def encode(self, frame):
         ret, jpeg = cv2.imencode('.jpg', frame)

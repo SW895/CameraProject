@@ -9,17 +9,17 @@ logging.basicConfig(
     format="%(name)s | %(levelname)s | %(asctime)s | %(message)s",
     datefmt="%Y-%m-%dT%H:%M:%S",)
 
-base_dir = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().parent
 
-SAVE_PATH = base_dir / 'video_archive/'
+SAVE_PATH = BASE_DIR.parent / 'video_archive/'
 if not os.path.isdir(SAVE_PATH):
     os.mkdir(SAVE_PATH)
 
-MODEL_PATH = base_dir / 'camera_app/weights/test_weights.pt'
+MODEL_PATH = BASE_DIR / 'weights/test_weights.pt'
 TIMEZONE = pytz.timezone('Europe/Moscow')
 
 config = configparser.ConfigParser()
-config.read(base_dir / 'camera_app/settings.cfg')
+config.read(BASE_DIR / 'settings.cfg')
 
 # CONNECTION SETTINGS
 SERVER_HOST = config['SERVER']['SERVER_HOST']
@@ -57,3 +57,5 @@ CONFIDENCE = float(config['DETECTION']['CONFIDENCE'])
 SAVE_FRAME_TIMEOUT = int(config['DETECTION']['SAVE_FRAME_TIMEOUT'])
 NO_DETECTION_LEN = int(config['DETECTION']['NO_DETECTION_LEN'])
 FPS = int(config['DETECTION']['FPS'])
+QT_VIDEO_WIDTH = 480
+QT_VIDEO_HEIGHT = 360
