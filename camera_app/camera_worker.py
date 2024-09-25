@@ -16,7 +16,6 @@ from datetime import (
 from PyQt6.QtCore import (
     QObject,
     pyqtSignal,
-    pyqtSlot
 )
 from PyQt6.QtGui import QImage
 from connection_client import NewRecordHandler
@@ -32,6 +31,7 @@ from settings import (
     FPS,
     QT_VIDEO_WIDTH,
     QT_VIDEO_HEIGHT,
+    RECORD_VIDEO_TIMEOUT
 )
 
 
@@ -46,35 +46,50 @@ class CameraWorker(QObject):
         self.camera_source = camera_source
         self.log = logging.getLogger(self.camera_name)
         self.videostream_frame = asyncio.Queue(maxsize=1)
-        self._lock = threading.Lock()
         self._frame_handler = None
         self._model_exist = False
+        self._detection_enabled = True
+        self.detection_policy_event = threading.Event()
+        self.recording_event = threading.Event()
 
-    @pyqtSlot()
     def enable_detection(self):
+        print('SIGNAL ENABLE')
         if self._model_exist:
-            with self._lock:
-                self._frame_handler = DetectingObjects(
-                    camera_name=self.camera_name,
-                    logger=self.log,
-                    event_loop=self._loop,
-                    frame_queue=self.videostream_frame,
-                    gui_signal=self.changePixmap,
-                    resolution=self.resolution,
-                    model=self.model
-                )
-
-    @pyqtSlot()
-    def disable_detection(self):
-        with self._lock:
-            self._frame_handler = NoDetecting(
+            self._detection_enabled = True
+            self._frame_handler = DetectingObjects(
                 camera_name=self.camera_name,
                 logger=self.log,
                 event_loop=self._loop,
                 frame_queue=self.videostream_frame,
                 gui_signal=self.changePixmap,
-                resolution=self.resolution
+                resolution=self.resolution,
+                model=self.model
             )
+
+    def disable_detection(self):
+        print('SIGNAL DISABLE')
+        self._detection_enabled = False
+        self._frame_handler = NoDetecting(
+            camera_name=self.camera_name,
+            logger=self.log,
+            event_loop=self._loop,
+            frame_queue=self.videostream_frame,
+            gui_signal=self.changePixmap,
+            resolution=self.resolution
+        )
+
+    def check_detection_policy_event(self):
+        return self.detection_policy_event.is_set()
+
+    def change_detection_policy(self):
+        if self._detection_enabled:
+            self.disable_detection()
+        else:
+            self.enable_detection()
+        self.detection_policy_event.clear()
+
+    def request_change_detection_policy(self):
+        self.detection_policy_event.set()
 
     def init_worker(self):
         self.get_video_capture()
@@ -87,26 +102,10 @@ class CameraWorker(QObject):
         self.set_default_frame_handler()
 
     def set_default_frame_handler(self):
-        with self._lock:
-            if DEFAULT_DETECTION and self._model_exist:
-                self._frame_handler = DetectingObjects(
-                    camera_name=self.camera_name,
-                    logger=self.log,
-                    event_loop=self._loop,
-                    frame_queue=self.videostream_frame,
-                    gui_signal=self.changePixmap,
-                    resolution=self.resolution,
-                    model=self.model
-                )
-            else:
-                self._frame_handler = NoDetecting(
-                    camera_name=self.camera_name,
-                    logger=self.log,
-                    event_loop=self._loop,
-                    frame_queue=self.videostream_frame,
-                    gui_signal=self.changePixmap,
-                    resolution=self.resolution
-                )
+        if DEFAULT_DETECTION and self._model_exist:
+            self.enable_detection()
+        else:
+            self.disable_detection()
 
     def get_video_capture(self):
         self.cap = cv2.VideoCapture(self.camera_source)
@@ -124,24 +123,33 @@ class CameraWorker(QObject):
         while self.cap.isOpened():
             success, frame = self.cap.read()
             if success:
-                with self._lock:
-                    self._frame_handler.process_frame(frame)
+                self._frame_handler.process_frame(frame)
+                if self.check_detection_policy_event():
+                    self.change_detection_policy()
             else:
                 break
+
+    def start_recording(self):
+        self.recording_event.set()
+
+    def stop_recording(self):
+        self.recording_event.clear()
 
 
 class FrameProcessing:
 
     def process_frame(self, frame):
-        self.frame = self.process_detections(frame)
-        self.send_frame_to_stream(self.frame)
-        self.send_frame_to_GUI(self.frame)
+        processed_frame = self.process_detections(frame)
+        self.send_frame_to_stream(processed_frame)
+        self.send_frame_to_GUI(processed_frame)
+        self.record_video(processed_frame)
 
     def send_frame_to_stream(self, frame):
         if self.videostream_frame.qsize() == 0:
             encoded_frame = self.encode(frame)
             self._loop.call_soon_threadsafe(
-                self.videostream_frame.put_nowait, encoded_frame)
+                self.videostream_frame.put_nowait, encoded_frame
+            )
 
     def send_frame_to_GUI(self, frame):
         converted_frame = self.convert_to_QImage(frame)
@@ -168,6 +176,9 @@ class FrameProcessing:
         b64_img = base64.b64encode(jpeg)
         encoded_frame = struct.pack("Q", len(b64_img)) + b64_img
         return encoded_frame
+
+    def record_video(self, frame):
+        pass
 
 
 class DetectingObjects(FrameProcessing):
@@ -301,7 +312,8 @@ class SaveVideo:
             else:
                 frame = cv2.resize(
                     frame,
-                    (self.resolution[0], self.resolution[1]))
+                    (self.resolution[0], self.resolution[1])
+                )
                 frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2BGR)
                 frames.append(frame)
         torchvision.io.write_video(video_name, numpy.array(frames), FPS)
@@ -309,3 +321,34 @@ class SaveVideo:
         self.log.debug('Put record to queue')
         self.loop.call_soon_threadsafe(
             self.record_handler.record_queue.put_nowait, self.record)
+
+
+class RecordVideo:
+
+    def __init__(self, resolution, camera_name):
+        self.frame_queue = queue.Queue(maxsize=1)
+        self.resolution = resolution
+        self.camera_name = camera_name
+
+    def record_video(self):
+        video_name = SAVE_PATH / self.camera_name
+        out = cv2.VideoWriter(
+            video_name,
+            cv2.VideoWriter_fourcc(*'mp4v'),
+            FPS,
+            (self.resolution[0], self.resolution[1]),
+            isColor=True
+        )
+        while True:
+            try:
+                frame = self.frame_queue.get(timeout=RECORD_VIDEO_TIMEOUT)
+            except queue.Empty:
+                break
+            else:
+                frame = cv2.resize(
+                    frame,
+                    (self.resolution[0], self.resolution[1])
+                )
+                frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2BGR)
+                out.write(frame)
+        out.release()

@@ -9,7 +9,6 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import (
     QThread,
-    pyqtSignal,
     pyqtSlot,
     Qt,
 )
@@ -38,8 +37,6 @@ class MainWindow(QMainWindow):
     camera_workers = {}
     camera_threads = {}
     buttons = {}
-    enable_detection = pyqtSignal()
-    disable_detection = pyqtSignal()
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -77,17 +74,18 @@ class MainWindow(QMainWindow):
                 alignment=Qt.AlignmentFlag.AlignCenter
             )
 
-            #current_button = QPushButton('Enable Detection')
-            #self.buttons.update({camera: current_button})
-            #current_button.setCheckable(True)
-            #current_button.toggle()
-            #current_button.clicked.connect(self.enable_det)
-            #self.central_widget_layout.addWidget(
-            #    current_button,
-            #    row + 1,
-            #    column,
-            #    alignment=Qt.AlignmentFlag.AlignCenter
-            #)
+            if camera:
+                current_button = QPushButton('Disable Detection')
+                self.buttons.update({current_button: camera})
+                current_button.setCheckable(True)
+                current_button.toggle()
+                current_button.clicked.connect(self.change_detection_policy)
+                self.central_widget_layout.addWidget(
+                    current_button,
+                    row + 1,
+                    column,
+                    alignment=Qt.AlignmentFlag.AlignCenter
+                )
             column += 1
             if column > 3:
                 column = 0
@@ -123,8 +121,6 @@ class MainWindow(QMainWindow):
             current_thread.started.connect(current_worker.run_camera)
             current_thread.finished.connect(app.exit)
             current_worker.changePixmap.connect(self.setFrame)
-            self.enable_detection.connect(current_worker.enable_detection)
-            self.disable_detection.connect(current_worker.disable_detection)
 
     @pyqtSlot()
     def event_loop_created(self):
@@ -145,11 +141,10 @@ class MainWindow(QMainWindow):
         for camera_name in self.camera_threads:
             self.camera_threads[camera_name].start()
 
-    def enable_det(self):
-        self.enable_detection.emit()
-
-    def disable_det(self):
-        self.disable_detection.emit()
+    def change_detection_policy(self):
+        camera_name = self.buttons[self.sender()]
+        if camera_name:
+            self.camera_workers[camera_name].request_change_detection_policy()
 
     @pyqtSlot(QImage, str)
     def setFrame(self, frame, camera_name):
