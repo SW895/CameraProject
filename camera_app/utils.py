@@ -1,4 +1,5 @@
 import asyncio
+import threading
 from request_builder import RequestBuilder
 from settings import (
     SOCKET_BUFF_SIZE,
@@ -84,3 +85,16 @@ class ErrorAfter(object):
 
 class CallableExhausted(Exception):
     pass
+
+
+def new_thread(target_function):
+
+    def inner(*args, **kwargs):
+
+        thread = threading.Thread(target=target_function,
+                                  args=args,
+                                  kwargs=kwargs)
+        thread.start()
+        return thread
+
+    return inner
