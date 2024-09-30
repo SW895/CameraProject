@@ -27,7 +27,8 @@ from settings import (
     CAMERA_LIST,
     BASE_DIR,
     QT_VIDEO_WIDTH,
-    QT_VIDEO_HEIGHT
+    QT_VIDEO_HEIGHT,
+    COLUMN_NUM
 )
 from camera_widget import (
     Camera,
@@ -62,7 +63,8 @@ class MainWindow(QMainWindow):
         row = 0
         column = 0
         slots = (list(CAMERA_LIST.keys())
-                 + [None for i in range(6 - len(CAMERA_LIST) % 3)])
+                 + [None for i in range(
+                    COLUMN_NUM - len(CAMERA_LIST) % COLUMN_NUM)])
         for camera in slots:
             cellWidget = QWidget(self.central_widget)
             cellWidgetLayout = QVBoxLayout(cellWidget)
@@ -89,7 +91,7 @@ class MainWindow(QMainWindow):
                 alignment=Qt.AlignmentFlag.AlignCenter
             )
             column += 1
-            if column >= 3:
+            if column >= COLUMN_NUM:
                 column = 0
                 row += 1
 
