@@ -25,6 +25,7 @@ class CameraWorker(QObject):
 
     changePixmap = pyqtSignal(QImage, str)
     finished = pyqtSignal()
+    x = 1
 
     def __init__(self, camera_name, camera_source):
         super().__init__()
