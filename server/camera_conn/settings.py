@@ -5,7 +5,8 @@ import logging
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(name)s | %(levelname)s | %(asctime)s | %(message)s",
-    datefmt="%Y-%m-%dT%H:%M:%S",)
+    datefmt="%Y-%m-%dT%H:%M:%S",
+)
 
 DEBUG = bool(int(os.environ.get('DEBUG', 1)))
 GLOBAL_TEST = bool(int(os.environ.get('GLOBAL_TEST', 1)))
@@ -44,3 +45,4 @@ INTERNAL_PORT = int(os.environ.get('INTERNAL_PORT', 20900))
 INTERNAL_CONN_QUEUE = int(os.environ.get('INTERNAL_CONNECTION_QUEUE', 10))
 
 SOCKET_BUFF_SIZE = int(os.environ.get('SOCKET_BUFF_SIZE', 65536))
+PROMETHEUS_PORT = int(os.environ.get('CAMERA_PORT', 8000))

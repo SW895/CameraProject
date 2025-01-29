@@ -9,7 +9,8 @@ from settings import (
     EXTERNAL_CONN_QUEUE,
     INTERNAL_HOST,
     INTERNAL_PORT,
-    INTERNAL_CONN_QUEUE
+    INTERNAL_CONN_QUEUE,
+    PROMETHEUS_PORT,
 )
 from managers import (
     VideoStreamManager,
@@ -26,6 +27,7 @@ from handlers import (
     VideoResponseHandler,
     AproveUserRequestHandler
 )
+from prometheus_client import start_http_server
 
 
 class Server:
@@ -112,9 +114,12 @@ class Server:
 
 
 if __name__ == '__main__':
+    prometheus, prom_thead = start_http_server(PROMETHEUS_PORT)
     server = Server()
     server.prepare_loop()
     try:
         server.run()
     except KeyboardInterrupt:
         server.shutdown()
+        prometheus.shutdown()
+        prom_thead.join()
