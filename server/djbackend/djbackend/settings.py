@@ -26,9 +26,11 @@ INSTALLED_APPS = [
     'main.apps.MainConfig',
     'registration.apps.RegistrationConfig',
     'channels',
+    'django_prometheus',
 ]
 
 MIDDLEWARE = [
+    'django_prometheus.middleware.PrometheusBeforeMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -36,6 +38,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'django_prometheus.middleware.PrometheusAfterMiddleware',
 ]
 
 ROOT_URLCONF = 'djbackend.urls'
@@ -91,7 +94,7 @@ DATABASES = {
     'default':
     {
         'ENGINE': os.environ.get('POSTGRES_ENGINE',
-                                 'django.db.backends.postgresql'),
+                                 'django_prometheus.db.backends.postgresql'),
         'NAME': os.environ.get('POSTGRES_DB', 'dj_test'),
         'USER': os.environ.get('POSTGRES_USER', 'test_dj'),
         'PASSWORD': os.environ.get('POSTGRES_PASSWORD', '123'),

@@ -85,6 +85,13 @@ services:
       - 1337:80     
     depends_on:
       - web
+
+  prometheus:
+    image: prom/prometheus
+    ports:
+      - 9090:9090
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
     
 volumes:
   postgres_data:
