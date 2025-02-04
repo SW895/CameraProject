@@ -3,6 +3,7 @@ import aiofiles
 import logging
 import json
 import os
+from prometheus_client import Histogram
 from settings import (
     SOCKET_BUFF_SIZE,
     GLOBAL_TEST
@@ -18,6 +19,10 @@ from managers import (
     VideoRequestManager,
     SignalCollector
 )
+
+processing_request = Histogram(
+    'camera_conn_request_processing_time',
+    'Request processing time',)
 
 
 class BaseHandler(object):
@@ -50,6 +55,7 @@ class SignalHandler(BaseHandler):
     request_type = ('signal', )
 
     @classmethod
+    @processing_request.time()
     async def process_request(self, request):
         self.log.debug('Signal handler started')
         await self.manager.client_queue.put(request)
@@ -78,6 +84,17 @@ class NewRecordHandler(BaseHandler):
         await self._record_handler.save()
 
     @classmethod
+    async def receive_data(self, request):
+        result = b""
+        while len(result) < int(request.record_size):
+            data = await request.reader.read(SOCKET_BUFF_SIZE)
+            result += data
+            if data == b"":
+                break
+        return result
+
+    @classmethod
+    @processing_request.time()
     async def process_request(self, request):
         if request.request_type == 'new_video_record':
             self.log.debug('New video record method')
@@ -89,17 +106,21 @@ class NewRecordHandler(BaseHandler):
             self.log.debug('User record method')
             self.set_method(UserRecord(request))
 
-        result = b""
-        data = b""
         self.log.info('Receiving new records')
-        while len(result) < request.record_size:
-            data = await request.reader.read(SOCKET_BUFF_SIZE)
-            result += data
-            if data == b"":
-                break
+
+        try:
+            data = await asyncio.wait_for(
+                self.receive_data(request),
+                timeout=0.1
+            )
+        except (asyncio.TimeoutError, asyncio.CancelledError):
+            self.log.error('Failed to receive record')
+            request.writer.close()
+            await request.writer.wait_closed()
+            return
 
         self.log.info('New records received')
-        records = result.decode().split('\n')
+        records = data.decode().split('\n')
         for record in records:
             if record:
                 self.log.debug('RECORD:%s', record)
@@ -115,6 +136,7 @@ class VideoStreamRequestHandler(BaseHandler):
     request_type = ('stream_request', )
 
     @classmethod
+    @processing_request.time()
     async def process_request(self, request):
         self.log.info('Handler started')
         self.log.debug('Put request to stream request queue')
@@ -129,6 +151,7 @@ class VideoStreamResponseHandler(BaseHandler):
     request_type = ('stream_response', )
 
     @classmethod
+    @processing_request.time()
     async def process_request(self, request):
         self.log.info('Handler started')
         self.log.debug('Put request to stream source queue')
@@ -143,6 +166,7 @@ class VideoRequestHandler(BaseHandler):
     request_type = ('video_request', )
 
     @classmethod
+    @processing_request.time()
     async def process_request(self, request):
         self.log.debug('Put video request to queue')
         await self.manager.requesters.put(request)
@@ -168,6 +192,7 @@ class VideoResponseHandler(BaseHandler):
             await video.write(data)
 
     @classmethod
+    @processing_request.time()
     async def process_request(self, request):
         if request.request_type != 'video_response':
             return
@@ -235,6 +260,7 @@ class AproveUserRequestHandler(BaseHandler):
     request_type = ('aprove_user_request', )
 
     @classmethod
+    @processing_request.time()
     async def process_request(self, request):
         self.log.debug('User Request processing %s', request)
         await self.signal.signal_queue.put(request)

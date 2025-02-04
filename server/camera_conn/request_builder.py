@@ -55,8 +55,11 @@ class RequestBuilder:
 
     def with_bytes(self, byte_line):
         if byte_line:
-            args = json.loads(byte_line.decode())
-            self.args.update(args)
+            try:
+                args = json.loads(byte_line.decode())
+            except json.JSONDecodeError:
+                return self
+        self.args.update(args)
         return self
 
     def with_time(self, time):
@@ -66,3 +69,8 @@ class RequestBuilder:
         self.with_time(time.time())
         self._product.add(**self.args)
         return self._product
+
+    def validate(self):
+        if 'request_type' in self.args:
+            return True
+        return False
