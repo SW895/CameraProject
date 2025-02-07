@@ -1,4 +1,5 @@
 from django.db import models
+from django_prometheus.models import ExportModelOperationsMixin
 
 
 class Camera(models.Model):
@@ -9,7 +10,7 @@ class Camera(models.Model):
         return self.camera_name
 
 
-class ArchiveVideo(models.Model):
+class ArchiveVideo(ExportModelOperationsMixin('archive_video'), models.Model):
     date_created = models.DateTimeField(blank=False)
     human_det = models.BooleanField(default=False)
     cat_det = models.BooleanField(default=False)
@@ -32,7 +33,7 @@ class ArchiveVideo(models.Model):
         return fields
 
 
-class CachedVideo(models.Model):
+class CachedVideo(ExportModelOperationsMixin('cached_video'), models.Model):
     name = models.TextField(max_length=100)
     date_expire = models.DateTimeField()
 

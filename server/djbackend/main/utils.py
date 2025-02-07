@@ -4,7 +4,22 @@ import socket
 import queue
 import threading
 import struct
+from prometheus_client import Gauge, Summary
 from .models import Camera
+
+
+bytes_received = Summary(
+    'djbackend_videostream_bytes_received',
+    'Video stream bytes received'
+)
+stream_threads = Gauge(
+    'djbackend_videostream_thread_number',
+    'Number of videostream threads',
+)
+websocket_consumers = Gauge(
+    'djbackend_websocket_consumer_number',
+    'Number of websocket consumers',
+)
 
 
 def new_thread(target_function):
@@ -70,10 +85,12 @@ class VideoStreamSource:
         self.stream_source()
 
     def add_consumer(self):
+        websocket_consumers.inc()
         with self._mutex:
             self._consumer_number += 1
 
     def remove_consumer(self):
+        websocket_consumers.dec()
         with self._mutex:
             self._consumer_number -= 1
 
@@ -102,12 +119,13 @@ class VideoStreamSource:
         }
         self.stream_socket.send(json.dumps(msg).encode())
         reply = self.stream_socket.recv(65536)
-        if reply.decode == 'accepted':
+        if reply.decode() == 'accepted':
             return True
         return False
 
     @new_thread
     def stream_source(self):
+        stream_threads.inc()
         data = b""
         frame = b""
         consumer_list = []
@@ -118,8 +136,9 @@ class VideoStreamSource:
                 while self.consumer_queue.qsize() > 0:
                     consumer_list.append(self.consumer_queue.get())
                 if consumer_list:
-                    frame, data = self.recv_package(data)
+                    frame, data = self.recv_package(data)                    
                     if frame:
+                        bytes_received.observe(len(frame) + len(data))
                         for consumer in consumer_list:
                             if consumer.frame.qsize() == 0:
                                 consumer.frame.put(frame)
@@ -136,6 +155,7 @@ class VideoStreamSource:
             consumer.disconnect('1')  # ???? consumer.websocket_disconnect(msg)
         self.void_consumers()
         self.thread_dead()
+        stream_threads.dec()
 
     def recv_package(self, data):
         try:

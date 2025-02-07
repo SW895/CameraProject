@@ -31,8 +31,8 @@ connection_error = Counter(
 )
 bytes_received = Histogram(
     'camera_conn_bytes_received',
-    'Bytes received frames of files',
-    ['manager_type'],
+    'Frames bytes received',
+    ['manager_type', 'operation_type'],
 )
 consumer_number = Gauge(
     'camera_conn_consumer_number',
@@ -191,7 +191,7 @@ class StreamChannel:
                 self.source_queue.get(),
                 STREAM_SOURCE_TIMEOUT
             )
-        except TimeoutError:
+        except asyncio.TimeoutError:
             connection_error.labels('stream_manager', 'remote_client').inc()
             self.log.error('SOURCE TIMEOUT')
             await self.clean_up()
@@ -201,7 +201,8 @@ class StreamChannel:
         try:
             while self.consumer_list and self.source:
                 data = await self.source.reader.read(SOCKET_BUFF_SIZE)
-                bytes_received.labels('stream_manager').observe(len(data))
+                bytes_received\
+                    .labels('stream_manager', 'received').observe(len(data))
                 if not data:
                     connection_error\
                         .labels('stream_manager', 'remote_client').inc()
@@ -213,6 +214,7 @@ class StreamChannel:
         finally:
             await self.clean_up()
             channels_number.labels('stream_manager').dec()
+            self.log.debug('CHANNEL ClOSED')
             return True
 
     async def send_to_all(self, data):
@@ -220,6 +222,8 @@ class StreamChannel:
             try:
                 consumer.writer.write(data)
                 await consumer.writer.drain()
+                bytes_received\
+                    .labels('stream_manager', 'send').observe(len(data))
             except Exception as error:
                 self.log.warning('Connection to consumer lost: %s', error)
                 self.consumer_list.remove(consumer)
@@ -421,6 +425,7 @@ class SignalCollector(BaseManager, metaclass=SingletonMeta):
                 current_client = self.clients[signal.client_id]
             except KeyError:
                 self.log.error('No such client %s', signal.client_id)
+                pass
             else:
                 self.log.debug('Put signal to client %s', signal.client_id)
                 await current_client.signal_queue.put(signal)

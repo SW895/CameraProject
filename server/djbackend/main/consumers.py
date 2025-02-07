@@ -2,7 +2,13 @@ import queue
 import json
 import threading
 from channels.generic.websocket import WebsocketConsumer
+from prometheus_client import Summary
 from .utils import new_thread
+
+bytes_sended = Summary(
+    'djbackend_websocket_bytes_sended',
+    'Bytes sended through websocket',
+)
 
 
 class VideoStreamConsumer(WebsocketConsumer):
@@ -58,6 +64,7 @@ class VideoStreamConsumer(WebsocketConsumer):
             if frame:
                 try:
                     self.send(frame.decode('utf-8'))
+                    bytes_sended.observe(len(frame.decode('utf-8')))
                 except Exception:
                     self.pause_stream()
 

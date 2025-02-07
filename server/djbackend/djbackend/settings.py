@@ -140,3 +140,18 @@ EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_PASSWORD')
 EMAIL_PORT = int(os.environ.get('EMAIL_PORT', 587))
 EMAIL_USE_TLS = bool(os.environ.get('EMAIL_USE_TLS', 1))
 DEFAULT_FROM_EMAIL = os.environ.get('EMAIL_FROM')
+
+
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "handlers": {
+        "console": {
+            "class": "logging.StreamHandler",
+        },
+    },
+    "root": {
+        "handlers": ["console"],
+        "level": "DEBUG",
+    },
+}
