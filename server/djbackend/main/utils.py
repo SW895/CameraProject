@@ -136,7 +136,7 @@ class VideoStreamSource:
                 while self.consumer_queue.qsize() > 0:
                     consumer_list.append(self.consumer_queue.get())
                 if consumer_list:
-                    frame, data = self.recv_package(data)                    
+                    frame, data = self.recv_package(data)
                     if frame:
                         bytes_received.observe(len(frame) + len(data))
                         for consumer in consumer_list:
