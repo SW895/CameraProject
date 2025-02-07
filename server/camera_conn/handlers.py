@@ -3,7 +3,7 @@ import aiofiles
 import logging
 import json
 import os
-from prometheus_client import Histogram
+from prometheus_client import Summary
 from settings import (
     SOCKET_BUFF_SIZE,
     GLOBAL_TEST
@@ -20,9 +20,14 @@ from managers import (
     SignalCollector
 )
 
-processing_request = Histogram(
+processing_request = Summary(
     'camera_conn_request_processing_time',
     'Request processing time',)
+
+bytes_received = Summary(
+    'camera_conn_video_file_bytes_received',
+    'Videofile bytes received'
+)
 
 
 class BaseHandler(object):
@@ -214,6 +219,7 @@ class VideoResponseHandler(BaseHandler):
         try:
             while len(video_data) < request.video_size:
                 data = await request.reader.read(SOCKET_BUFF_SIZE)
+                bytes_received.observe(len(data))
                 video_data += data
                 if data == b"":
                     break

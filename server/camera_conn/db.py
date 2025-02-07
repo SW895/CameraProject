@@ -2,6 +2,7 @@ import asyncio
 import psycopg
 import logging
 from psycopg import sql
+from prometheus_client import Summary
 from request_builder import RequestBuilder
 from settings import (
     DB_HOST,
@@ -9,6 +10,11 @@ from settings import (
     DB_PASSWORD,
     DB_PORT,
     DB_USER
+)
+
+db_request_timing = Summary(
+    'camera_conn_db_request_timing',
+    'Database request timing',
 )
 
 
@@ -30,6 +36,7 @@ class BaseRecordHandler:
         self.log.info('Connection to DB')
         self.db_conn, self.cur = await connect_to_db()
 
+    @db_request_timing.time()
     async def process_records(self):
         self.log.info('Successfully connected to db')
         while self.save_queue.qsize() > 0:
@@ -150,6 +157,7 @@ class ActiveCameras:
     log = logging.getLogger('Get active cameras')
 
     @classmethod
+    @db_request_timing.time()
     async def get_active_camera_list(self):
         self.log.debug('connecting to db')
         self.db_conn, self.cur = await connect_to_db()
