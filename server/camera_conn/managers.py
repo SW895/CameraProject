@@ -1,6 +1,11 @@
 import asyncio
 import logging
 import time
+from prometheus_client import (
+    Histogram,
+    Counter,
+    Gauge,
+)
 from camera_utils import SingletonMeta
 from request_builder import RequestBuilder
 from settings import (
@@ -9,6 +14,35 @@ from settings import (
     VIDEO_REQUEST_TIMEOUT,
     GARB_COLLECTOR_TIMEOUT,
     REQUEST_LIFETIME
+)
+
+# manager types: stream_manager, videofile_manager, signal_manager
+# client_types: remote_client, backend
+
+channel_error = Counter(
+    'camera_conn_dict_key_error',
+    'Video file or channel key error',
+    ['manager_type'],
+)
+connection_error = Counter(
+    'camera_conn_connection_error',
+    'Connection error client or backend',
+    ['manager_type', 'client_type'],
+)
+bytes_received = Histogram(
+    'camera_conn_bytes_received',
+    'Bytes received frames of files',
+    ['manager_type'],
+)
+consumer_number = Gauge(
+    'camera_conn_consumer_number',
+    'Number of active backend clients and sources',
+    ['manager_type', 'client_type'],
+)
+channels_number = Gauge(
+    'camera_conn_active_channels_number',
+    'Number of active channels and video requests',
+    ['manager_type'],
 )
 
 
@@ -69,6 +103,7 @@ class VideoStreamManager(BaseManager, metaclass=SingletonMeta):
             try:
                 current_channel = self.stream_channels[requester.camera_name]
             except KeyError:
+                channel_error.labels('stream_manager').inc()
                 self.log.error('No such camera')
                 continue
             self.log.debug('Starting channel')
@@ -85,6 +120,7 @@ class VideoStreamManager(BaseManager, metaclass=SingletonMeta):
             try:
                 current_channel = self.stream_channels[source.camera_name]
             except KeyError:
+                channel_error.labels('stream_manager').inc()
                 self.log.error('No such channel')
                 continue
             self.log.debug('Get stream source')
@@ -120,6 +156,8 @@ class VideoStreamManager(BaseManager, metaclass=SingletonMeta):
             await self.send_request(request)
             self.log.debug('START COURUTINE')
             channel.task = self.loop.create_task(channel.run_channel())
+            channels_number.labels('stream_manager').inc()
+
         await channel.add_consumer(requester)
 
 
@@ -144,6 +182,7 @@ class StreamChannel:
     async def add_consumer(self, consumer):
         self.log.debug('Get New Consumer')
         self.consumer_list.append(consumer)
+        consumer_number.labels('stream_manager', 'backend').inc()
 
     async def run_channel(self):
         self.log.debug('CHANNEL STARTED')
@@ -153,22 +192,27 @@ class StreamChannel:
                 STREAM_SOURCE_TIMEOUT
             )
         except TimeoutError:
-            self.log.debug('SOURCE TIMEOUT')
+            connection_error.labels('stream_manager', 'remote_client').inc()
+            self.log.error('SOURCE TIMEOUT')
             await self.clean_up()
             return 'TimeoutError'
         self.source_queue.task_done()
+        consumer_number.labels('stream_manager', 'remote_client').inc()
         try:
             while self.consumer_list and self.source:
                 data = await self.source.reader.read(SOCKET_BUFF_SIZE)
+                bytes_received.labels('stream_manager').observe(len(data))
                 if not data:
-                    self.log.debug('Connection to camera lost')
+                    connection_error\
+                        .labels('stream_manager', 'remote_client').inc()
+                    self.log.error('Connection to camera lost')
                     raise asyncio.CancelledError
                 await self.send_to_all(data)
-
         except asyncio.CancelledError:
             self.log.debug('Courutine cancelled')
         finally:
             await self.clean_up()
+            channels_number.labels('stream_manager').dec()
             return True
 
     async def send_to_all(self, data):
@@ -177,8 +221,9 @@ class StreamChannel:
                 consumer.writer.write(data)
                 await consumer.writer.drain()
             except Exception as error:
-                self.log.debug('Connection to consumer lost: %s', error)
+                self.log.warning('Connection to consumer lost: %s', error)
                 self.consumer_list.remove(consumer)
+                consumer_number.labels('stream_manager', 'backend').dec()
 
     async def clean_up(self):
         if self.source:
@@ -186,6 +231,7 @@ class StreamChannel:
             self.source.writer.close()
             await self.source.writer.wait_closed()
             self.log.debug('SOURCE CONNECTION CLOSED')
+            consumer_number.labels('stream_manager', 'remote_client').dec()
         self.log.debug('PROCESS CONSUMERS')
 
         if self.consumer_list:
@@ -198,6 +244,7 @@ class StreamChannel:
                 await consumer.writer.wait_closed()
                 self.consumer_list.remove(consumer)
                 self.log.debug('CLOSE CONNECTION TO CONSUMER')
+                consumer_number.labels('stream_manager', 'backend').dec()
         self.source = None
         self.task = None
         self.log.debug('COURUTINE ENDED')
@@ -257,6 +304,7 @@ class VideoRequestManager(BaseManager, metaclass=SingletonMeta):
             try:
                 current_response = self.requested_videos[response.video_name]
             except KeyError:
+                channel_error.labels('videofile_manager').inc()
                 self.log.debug('No such request %s', response.video_name)
             else:
                 self.log.info('KEYS: %s', self.requested_videos.keys())
@@ -300,14 +348,17 @@ class VideoRequest:
     async def add_requester(self, requester):
         self.log.debug('Requester added')
         self.requesters.append(requester)
+        consumer_number.labels('videofile_manager', 'backend').inc()
 
     async def process_request(self):
+        channels_number.labels('videofile_manager').inc()
         try:
             response = await asyncio.wait_for(
                 self.response_queue.get(),
                 VIDEO_REQUEST_TIMEOUT
             )
         except TimeoutError:
+            connection_error.labels('videofile_manager', 'remote_client').inc()
             self.log.debug('Response TIMEOUT')
             self.response = 'timeout_error'
         else:
@@ -315,14 +366,21 @@ class VideoRequest:
             self.log.debug('GET RESPONSE')
 
         for requester in self.requesters:
-            requester.writer.write(self.response.encode())
-            requester.writer.close()
-            await requester.writer.wait_closed()
+            try:
+                requester.writer.write(self.response.encode())
+                await requester.writer.drain()
+            except (ConnectionResetError, BrokenPipeError):
+                connection_error.labels('videofile_manager', 'backend').inc()
+            else:
+                requester.writer.close()
+                await requester.writer.wait_closed()
+            consumer_number.labels('videofile_manager', 'backend').dec()
             self.log.info('RESPONSE NAME: %s', self.response)
 
         self.task_done = True
         self.task = None
         self.requesters = []
+        channels_number.labels('videofile_manager').dec()
 
 
 class SignalCollector(BaseManager, metaclass=SingletonMeta):
@@ -342,12 +400,14 @@ class SignalCollector(BaseManager, metaclass=SingletonMeta):
 
             if not (client.client_id in self.clients):
                 self.log.debug('Client does not exist: %s', client.client_id)
+                channel_error.labels('signal_namager').inc()
                 continue
             else:
                 self.clients[client.client_id].update_connection(client)
                 self.log.debug('Client exists')
             self.clients[client.client_id].task = self.loop.create_task(
-                self.clients[client.client_id].handle_signals())
+                self.clients[client.client_id].handle_signals()
+            )
 
     async def process_responses(self):  # get signals to transmit
         while True:
@@ -388,6 +448,7 @@ class Client:
         self.reader = new_connection.reader
 
     async def handle_signals(self):
+        channels_number.labels('signal_namager').inc()
         while self.signal_queue.qsize() > 0:
             self.log.info('Gets signal from queue')
             try:
@@ -404,6 +465,8 @@ class Client:
                 await self.writer.drain()
             except Exception as error:
                 self.log.error('Connection to client lost, %s', error)
+                connection_error\
+                    .labels('signal_namager', 'remote_client').inc()
                 break
 
         self.log.info('No more new events')
@@ -411,3 +474,4 @@ class Client:
         await self.writer.wait_closed()
         self.log.debug('Session ended')
         self.task = None
+        channels_number.labels('signal_namager').dec()
