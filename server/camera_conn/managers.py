@@ -208,6 +208,7 @@ class StreamChannel:
                         .labels('stream_manager', 'remote_client').inc()
                     self.log.error('Connection to camera lost')
                     raise asyncio.CancelledError
+                self.log.debug('FRAME SENDED')
                 await self.send_to_all(data)
         except asyncio.CancelledError:
             self.log.debug('Courutine cancelled')
@@ -408,7 +409,7 @@ class SignalCollector(BaseManager, metaclass=SingletonMeta):
                 continue
             else:
                 self.clients[client.client_id].update_connection(client)
-                self.log.debug('Client exists')
+                #self.log.debug('Client exists')
             self.clients[client.client_id].task = self.loop.create_task(
                 self.clients[client.client_id].handle_signals()
             )
@@ -455,28 +456,28 @@ class Client:
     async def handle_signals(self):
         channels_number.labels('signal_namager').inc()
         while self.signal_queue.qsize() > 0:
-            self.log.info('Gets signal from queue')
+            #self.log.info('Gets signal from queue')
             try:
                 signal = await self.signal_queue.get()
             except asyncio.CancelledError:
-                self.log.debug('Courutine cancelled')
+                #self.log.debug('Courutine cancelled')
                 break
             self.signal_queue.task_done()
             if (signal.created - time.time()) > REQUEST_LIFETIME:
                 continue
-            self.log.info('Sending signal')
+            #self.log.info('Sending signal')
             try:
                 self.writer.write(signal.serialize().encode())
                 await self.writer.drain()
             except Exception as error:
-                self.log.error('Connection to client lost, %s', error)
+                # self.log.error('Connection to client lost, %s', error)
                 connection_error\
                     .labels('signal_namager', 'remote_client').inc()
                 break
 
-        self.log.info('No more new events')
+        #self.log.info('No more new events')
         self.writer.close()
         await self.writer.wait_closed()
-        self.log.debug('Session ended')
+        #self.log.debug('Session ended')
         self.task = None
         channels_number.labels('signal_namager').dec()

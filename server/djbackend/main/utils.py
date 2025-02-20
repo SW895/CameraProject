@@ -1,12 +1,12 @@
 import os
 import json
-import socket
-import queue
+import logging
 import threading
 import struct
+import asyncio
+from asgiref.sync import sync_to_async
 from prometheus_client import Gauge, Summary
 from .models import Camera
-
 
 bytes_received = Summary(
     'djbackend_videostream_bytes_received',
@@ -39,17 +39,13 @@ def new_thread(target_function):
 class VideoStreamSource:
 
     def __init__(self, camera_name):
-        self.consumer_queue = queue.Queue()
-        self._mutex = threading.Lock()
-        self._thread_working = threading.Event()
-        self._thread_working.set()
-        self._thread_dead = threading.Event()
-        self._thread_dead.set()
+        self.consumer_queue = asyncio.Queue()
+        #self._mutex = asyncio.Lock()
         self._consumer_number = 0
         self.camera_name = camera_name
         self.payload_size = struct.calcsize("Q")
-        self.stream_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.stream_socket.settimeout(5.0)
+        self._task = None
+        self.log = logging.getLogger(f'CAMERA_NAME:{camera_name}')
 
     def __getstate__(self):
         state = self.__dict__.copy()
@@ -61,108 +57,118 @@ class VideoStreamSource:
 
     def __setstate__(self, state):
         self.__dict__.update(state)
-        self.consumer_queue = queue.Queue()
-        self._mutex = threading.Lock()
-        self._thread_working = threading.Event()
-        self._thread_dead = threading.Event()
-
-    def wait_end_thread(self):  # for testing
-        self._thread_dead.wait()
-
-    def thread_dead(self):
-        self._thread_dead.set()
-
-    def thread_working(self):
-        return self._thread_working.is_set()
+        self.consumer_queue = asyncio.Queue()
+        self._mutex = asyncio.Lock()
 
     def kill_thread(self):
-        self._thread_working.clear()
-        self._thread_dead.wait()
+        self.log.debug('Task cancelled')
+        self._task.cancel()
 
     def run_thread(self):
-        self._thread_working.set()
-        self._thread_dead.clear()
-        self.stream_source()
+        self.log.debug('Start stream')
+        loop = asyncio.get_event_loop()
+        self._task = loop.create_task(self.stream_source())
 
     def add_consumer(self):
         websocket_consumers.inc()
-        with self._mutex:
-            self._consumer_number += 1
+        self.log.debug('consumer added')
+        #with self._mutex:
+        self._consumer_number += 1
 
     def remove_consumer(self):
         websocket_consumers.dec()
-        with self._mutex:
-            self._consumer_number -= 1
+        self.log.debug('consumer removed')
+        #with self._mutex:
+        self._consumer_number -= 1
 
     def consumer_number(self):
         return self._consumer_number
 
     def void_consumers(self):
-        with self._mutex:
+        #with self._mutex:
             self._consumer_number = 0
 
-    def get_connection(self):
-        self.stream_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.stream_socket.settimeout(5.0)
+    async def get_connection(self):
         try:
-            self.stream_socket.connect(
-                (os.environ.get('INTERNAL_HOST', '127.0.0.1'),
-                    int(os.environ.get('INTERNAL_PORT', 20900)))
+            self.reader, self.writer = await asyncio.open_connection(
+                os.environ.get('INTERNAL_HOST', '127.0.0.1'),
+                int(os.environ.get('INTERNAL_PORT', 20900))
             )
-        except Exception:
-            self.thread_dead()
-            self.stream_socket.close()
+        except (asyncio.CancelledError, ConnectionRefusedError):
             return False
+        self.log.debug('Connected')
         msg = {
             'request_type': 'stream_request',
-            'camera_name': self.camera_name
+            'camera_name': self.camera_name,
         }
-        self.stream_socket.send(json.dumps(msg).encode())
-        reply = self.stream_socket.recv(65536)
+        self.writer.write(json.dumps(msg).encode())
+        await self.writer.drain()
+        self.log.debug('Message sended')
+        reply = await self.reader.read(65536)
+        self.log.debug('Reply received')
         if reply.decode() == 'accepted':
             return True
         return False
 
-    @new_thread
-    def stream_source(self):
+    async def stream_source(self):
         stream_threads.inc()
+        self.log.debug('Stream started')
         data = b""
         frame = b""
         consumer_list = []
-        connected = self.get_connection()
+        self.log.debug('Connecting ...')
+        connected = await self.get_connection()
 
-        if connected:
-            while self.thread_working() and (self.consumer_number() > 0):
+        if not connected:
+            self.log.debug('Failed to connect')
+            return
+        self.log.debug('Successfully connected')
+        try:
+            while self.consumer_number() > 0:
                 while self.consumer_queue.qsize() > 0:
-                    consumer_list.append(self.consumer_queue.get())
+                    consumer_list.append(await self.consumer_queue.get())
+                    self.log.debug('CONSUMER RECEIVED')
                 if consumer_list:
-                    frame, data = self.recv_package(data)
+                    self.log.debug('RECEIVING PACKAGE')
+                    frame, data = await self.recv_package(data)
+                    self.log.debug('FRAME RECEIVED %s', len(frame))
                     if frame:
+                        self.log.debug('FRAME TRUE %s', consumer_list)
                         bytes_received.observe(len(frame) + len(data))
                         for consumer in consumer_list:
                             if consumer.frame.qsize() == 0:
-                                consumer.frame.put(frame)
+                                self.log.debug('PUT FRAME TO QUEUE')
+                                await consumer.frame.put(frame)
                             if consumer.is_disconnected():
+                                self.log.debug('DISCONNECT')
                                 consumer_list.remove(consumer)
                                 self.remove_consumer()
                     else:
+                        self.log.debug('CORO ENDED')
                         break
-            self.stream_socket.close()
-
+        except asyncio.CancelledError:
+            pass
         while self.consumer_queue.qsize() > 0:
-            consumer_list.append(self.consumer_queue.get())
+            consumer_list.append(await self.consumer_queue.get())
         for consumer in consumer_list:
-            consumer.disconnect('1')  # ???? consumer.websocket_disconnect(msg)
+            await consumer.disconnect('1')  # ???? consumer.websocket_disconnect(msg)
+        self.log.debug('FFFFFFFFFFFFF')
+
+    async def clean_up(self):
+        self.writer.close()
+        await self.writer.wait_closed()
         self.void_consumers()
-        self.thread_dead()
         stream_threads.dec()
 
-    def recv_package(self, data):
+    async def recv_package(self, data):
         try:
-            packet = self.stream_socket.recv(4096)
-        except Exception:
+            self.log.debug('WAITING FOR DATA')
+            packet = await asyncio.wait_for(self.reader.read(4096), 5)
+        except (ConnectionResetError, BrokenPipeError, asyncio.TimeoutError):
+            self.log.debug('ERRROR')
             return None, None
         if packet != b"":
+            self.log.debug("PACKET RECEIVED")
             data += packet
             packed_msg_size = data[:self.payload_size]
             data = data[self.payload_size:]
@@ -170,12 +176,15 @@ class VideoStreamSource:
 
             while len(data) < msg_size:
                 try:
-                    packet = self.stream_socket.recv(1048576)
-                except Exception:
+                    self.log.debug('WAITING FOR DATA22222222')
+                    packet = await asyncio.wait_for(self.reader.read(1048576), 5)
+                except (asyncio.CancelledError, ConnectionResetError, BrokenPipeError, asyncio.TimeoutError):
                     return None, None
-                if (not self.thread_working()) or packet == b"":
+                if packet == b"":
+                    self.log.error('BAD FRAME')
                     return None, None
                 if msg_size > 100000:
+                    self.log.error('BAD FRAME')
                     return packet, b""
                 data += packet
 
@@ -185,55 +194,80 @@ class VideoStreamSource:
         return None, None
 
 
-class VideoStreamManager:
+class Singleton(type):
+    _instances = {}
+
+    def __call__(cls, *args, **kwargs):
+        if cls not in cls._instances:
+            cls._instances[cls] = super(Singleton, cls).__call__(*args, **kwargs)
+        return cls._instances[cls]
+
+
+class VideoStreamManager(metaclass=Singleton):
 
     def __init__(self):
         self.stream_sources = {}
-        self.consumer_queue = queue.Queue()
-        self._end_manager = threading.Event()
+        self.consumer_queue = asyncio.Queue()
+        self._task = None
+        self.log = logging.getLogger('STREAM MANAGER')
+        self._running = False
 
     def __getstate__(self):
         state = self.__dict__.copy()
         del state['consumer_queue']
-        del state['_end_manager'],
         return state
 
     def __setstate__(self, state):
         self.__dict__.update(state)
-        self.consumer_queue = queue.Queue()
-        self._end_manager = threading.Event()
-
-    def start_manager(self):
-        self._end_manager.clear()
+        self.consumer_queue = asyncio.Queue()
 
     def kill_manager(self):
-        self._end_manager.set()
+        self._task.cancel()
 
-    def manager_working(self):
-        return not self._end_manager.is_set()
-
-    def validate_stream_sources(self):
-        stream_sources = Camera.objects.filter(is_active=True)
+    async def validate_stream_sources(self):
+        self.log.debug('VALIDATING')
+        stream_sources = await sync_to_async(Camera.objects.filter)(is_active=True)
+        #self.log.debug('ZZZZZZZZZZZZZZZZZZZZZZZZZZZ %s', len(stream_sources))
         self.stream_sources.clear()
-        for source in stream_sources:
+        async for source in stream_sources:
+            self.log.debug('CREATE SOURCE')
             self.stream_sources[source.camera_name] = VideoStreamSource(
                 source.camera_name
             )
 
-    @new_thread
     def run_manager(self):
-        while self.manager_working():
-            consumer = self.consumer_queue.get()
+        if self._running:
+            return
+        self.log.debug('GET EVENT LOOP')
+        loop = asyncio.get_event_loop()
+        self.log.debug('GOT EVENT LOOP %s', loop)
+        self._task = loop.create_task(self.run())
+        self._running = True
+        self.log.debug('CREATE TASK %s', self._task)
+
+    async def run(self):
+        self.log.debug('Manager started')
+        while True:
+            try:
+                self.log.debug('WAITING FOR CONSUMER')
+                consumer = await self.consumer_queue.get()
+                self.log.debug('GOT CONSUMER')
+            except asyncio.CancelledError:
+                break
+            self.log.debug('Get consumer')
             if not (consumer.camera_name in self.stream_sources):
-                self.validate_stream_sources()
+                self.log.debug('VALIDATING STREAM SOURCES')
+                await self.validate_stream_sources()
 
             current_stream_source = self.stream_sources[consumer.camera_name]
 
             if current_stream_source.consumer_number() == 0:
-                current_stream_source.kill_thread()
+                self.log.debug('START NEW CORO')
+                #current_stream_source.kill_thread()
                 current_stream_source.add_consumer()
-                current_stream_source.consumer_queue.put(consumer)
+                await current_stream_source.consumer_queue.put(consumer)
                 current_stream_source.run_thread()
             else:
+                self.log.debug('CORO ALREADY RUNNING')
                 current_stream_source.add_consumer()
                 current_stream_source.consumer_queue.put(consumer)

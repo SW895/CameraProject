@@ -56,7 +56,7 @@ class AsyncServer:
         else:
             self.log.error('Failed to build request')
             return
-        self.log.debug('Request received. Sending reply')
+        #self.log.debug('Request received. Sending reply')
         reply = 'accepted'
         try:
             request.writer.write(reply.encode())
@@ -66,7 +66,7 @@ class AsyncServer:
             request.writer.close()
             await request.writer.wait_closed()
         else:
-            self.log.debug('Start handler %s', request.request_type)
+            #self.log.debug('Start handler %s', request.request_type)
             await self.handler(request)
 
     async def handler(self, request):

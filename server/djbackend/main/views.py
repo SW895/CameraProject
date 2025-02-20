@@ -22,12 +22,13 @@ def main_view(request):
     )
 
 
-@login_required
+#@login_required
 def stream_view(request):
     camera_list = Camera.objects.filter(is_active=True)
     simplified_camera_list = []
     for camera in camera_list:
         simplified_camera_list.append(camera.camera_name)
+    logging.debug('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA %s',simplified_camera_list)
     return render(
         request,
         'main/stream_page.html',

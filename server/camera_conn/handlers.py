@@ -62,7 +62,7 @@ class SignalHandler(BaseHandler):
     @classmethod
     @processing_request.time()
     async def process_request(self, request):
-        self.log.debug('Signal handler started')
+        #self.log.debug('Signal handler started')
         await self.manager.client_queue.put(request)
 
 

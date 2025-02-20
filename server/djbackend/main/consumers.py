@@ -1,23 +1,24 @@
-import queue
 import json
-import threading
-from channels.generic.websocket import WebsocketConsumer
+import asyncio
+from channels.generic.websocket import AsyncWebsocketConsumer
 from prometheus_client import Summary
-from .utils import new_thread
+# from .utils import new_thread
 
 bytes_sended = Summary(
     'djbackend_websocket_bytes_sended',
     'Bytes sended through websocket',
 )
+import logging
+from .utils import VideoStreamManager
 
-
-class VideoStreamConsumer(WebsocketConsumer):
+class VideoStreamConsumer(AsyncWebsocketConsumer):
 
     def __init__(self, *args, **kwargs):
-        self.manager = kwargs['manager']
-        self._pause_stream = threading.Event()
-        self._disconnected = threading.Event()
-        self.frame = queue.Queue(maxsize=1)
+        self.manager = VideoStreamManager()
+        self._disconnected = asyncio.Event()
+        self.frame = asyncio.Queue(maxsize=1)
+        self._videostream = None
+        self.log = logging.getLogger('ZZZZ')
         super().__init__(*args, **kwargs)
 
     def __getstate__(self):
@@ -29,9 +30,8 @@ class VideoStreamConsumer(WebsocketConsumer):
 
     def __setstate__(self, state):
         self.__dict__.update(state)
-        self.frame = queue.Queue(maxsize=1)
-        self._pause_stream = threading.Event()
-        self._disconnected = threading.Event()
+        self.frame = asyncio.Queue(maxsize=1)
+        self._disconnected = asyncio.Event()
 
     def is_disconnected(self):
         return self._disconnected.is_set()
@@ -39,54 +39,51 @@ class VideoStreamConsumer(WebsocketConsumer):
     def end_consumer(self):
         self._disconnected.set()
 
-    def pause_stream(self):
-        self._pause_stream.set()
+    def stop_videostream(self):
+        self._videostream.cancel()
 
-    def play_stream(self):
-        self._pause_stream.clear()
-
-    def is_paused(self):
-        return self._pause_stream.is_set()
-
-    def get_frame(self):
+    async def get_frame(self):
         try:
-            frame = self.frame.get(timeout=5)
-        except Exception:
-            self.pause_stream()
+            frame = await asyncio.wait_for(self.frame.get(), timeout=5)
+        except asyncio.TimeoutError():
+            #self.pause_stream()
             return None
         else:
             return frame
 
-    @new_thread
-    def videostream(self):
-        while not self.is_paused():
-            frame = self.get_frame()
+    async def videostream(self):
+        while True:
+            try:
+                frame = await self.get_frame()
+            except asyncio.CancelledError:
+                break
             if frame:
                 try:
-                    self.send(frame.decode('utf-8'))
+                    await self.send(frame.decode('utf-8'))
                     bytes_sended.observe(len(frame.decode('utf-8')))
                 except Exception:
-                    self.pause_stream()
+                    break
 
-    @new_thread
-    def connect(self):
+    async def connect(self):
+        self.log.debug('CONSUMER_CONNECTED')
         self.camera_name = self.scope["url_route"]["kwargs"]["camera_name"]
-        self.manager.consumer_queue.put(self)
-        self.videostream()
-        self.accept()
+        self.manager.run_manager()
+        await self.manager.consumer_queue.put(self)
+        self.log.debug('PUT SELF TO MANAGER QUEUE')
+        loop = asyncio.get_event_loop()
+        self._videostream = loop.create_task(self.videostream())
+        await self.accept()
 
-    @new_thread
-    def disconnect(self, close_code):
-        self.pause_stream()
+    async def disconnect(self, close_code):
+        self.stop_videostream()
         self.end_consumer()
-        self.close()
+        await self.close()
 
-    @new_thread
-    def receive(self, text_data):
+    async def receive(self, text_data):
         request = json.loads(text_data)
         signal = request['signal']
         if signal == 'pause':
-            self.pause_stream()
+            self.stop_videostream()
         elif signal == 'play' and self.is_paused():
-            self.play_stream()
-            self.videostream()
+            loop = asyncio.get_event_loop()
+            self._videostream = loop.create_task(self.videostream())

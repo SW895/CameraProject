@@ -25,6 +25,7 @@ INSTALLED_APPS = [
 
     'main.apps.MainConfig',
     'registration.apps.RegistrationConfig',
+
     'channels',
     'django_prometheus',
 ]
@@ -91,6 +92,10 @@ LOGIN_REDIRECT_URL = '/'
 
 # DB
 DATABASES = {
+    'default_2': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': 'mydatabase'
+    },
     'default':
     {
         'ENGINE': os.environ.get('POSTGRES_ENGINE',
@@ -141,6 +146,7 @@ EMAIL_PORT = int(os.environ.get('EMAIL_PORT', 587))
 EMAIL_USE_TLS = bool(os.environ.get('EMAIL_USE_TLS', 1))
 DEFAULT_FROM_EMAIL = os.environ.get('EMAIL_FROM')
 
+#logging
 
 LOGGING = {
     "version": 1,
@@ -152,6 +158,6 @@ LOGGING = {
     },
     "root": {
         "handlers": ["console"],
-        "level": "DEBUG",
+        "level": "NOTSET",
     },
 }
